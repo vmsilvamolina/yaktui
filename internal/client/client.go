@@ -1,0 +1,218 @@
+package client
+
+import (
+	"context"
+	"io"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+)
+
+// Client wraps the Kubernetes clientset
+type Client struct {
+	clientset *kubernetes.Clientset
+	namespace string
+}
+
+// New creates a new Kubernetes client
+func New(kubeconfig, namespace string) (*Client, error) {
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	return &Client{
+		clientset: clientset,
+		namespace: namespace,
+	}, nil
+}
+
+// CheckConnection verifies the connection to the Kubernetes cluster
+func (c *Client) CheckConnection(ctx context.Context) error {
+	_, err := c.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
+	return err
+}
+
+// Namespace returns current namespace
+func (c *Client) Namespace() string {
+	return c.namespace
+}
+
+// SetNamespace changes the current namespace
+func (c *Client) SetNamespace(ns string) {
+	c.namespace = ns
+}
+
+// ListNamespaces returns all namespaces
+func (c *Client) ListNamespaces(ctx context.Context) ([]corev1.Namespace, error) {
+	list, err := c.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListPods returns pods in the current namespace
+func (c *Client) ListPods(ctx context.Context) ([]corev1.Pod, error) {
+	list, err := c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListAllPods returns pods in all namespaces
+func (c *Client) ListAllPods(ctx context.Context) ([]corev1.Pod, error) {
+	list, err := c.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// GetPod returns a specific pod
+func (c *Client) GetPod(ctx context.Context, name string) (*corev1.Pod, error) {
+	return c.clientset.CoreV1().Pods(c.namespace).Get(ctx, name, metav1.GetOptions{})
+}
+
+// GetPodLogs returns logs for a pod container
+func (c *Client) GetPodLogs(ctx context.Context, podName, containerName string, tailLines int64) (string, error) {
+	opts := &corev1.PodLogOptions{
+		Container: containerName,
+		TailLines: &tailLines,
+	}
+
+	req := c.clientset.CoreV1().Pods(c.namespace).GetLogs(podName, opts)
+	stream, err := req.Stream(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer stream.Close()
+
+	logs, err := io.ReadAll(stream)
+	if err != nil {
+		return "", err
+	}
+
+	return string(logs), nil
+}
+
+// StreamPodLogs streams logs for a pod container
+func (c *Client) StreamPodLogs(ctx context.Context, podName, containerName string, tailLines int64) (io.ReadCloser, error) {
+	opts := &corev1.PodLogOptions{
+		Container: containerName,
+		TailLines: &tailLines,
+		Follow:    true,
+	}
+
+	req := c.clientset.CoreV1().Pods(c.namespace).GetLogs(podName, opts)
+	return req.Stream(ctx)
+}
+
+// ListServices returns services in the current namespace
+func (c *Client) ListServices(ctx context.Context) ([]corev1.Service, error) {
+	list, err := c.clientset.CoreV1().Services(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// DeletePod deletes a pod
+func (c *Client) DeletePod(ctx context.Context, name string) error {
+	return c.clientset.CoreV1().Pods(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+}
+
+// ListDeployments returns deployments in the current namespace
+func (c *Client) ListDeployments(ctx context.Context) ([]appsv1.Deployment, error) {
+	list, err := c.clientset.AppsV1().Deployments(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListAllDeployments returns deployments in all namespaces
+func (c *Client) ListAllDeployments(ctx context.Context) ([]appsv1.Deployment, error) {
+	list, err := c.clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListAllServices returns services in all namespaces
+func (c *Client) ListAllServices(ctx context.Context) ([]corev1.Service, error) {
+	list, err := c.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListConfigMaps returns configmaps in the current namespace
+func (c *Client) ListConfigMaps(ctx context.Context) ([]corev1.ConfigMap, error) {
+	list, err := c.clientset.CoreV1().ConfigMaps(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListAllConfigMaps returns configmaps in all namespaces
+func (c *Client) ListAllConfigMaps(ctx context.Context) ([]corev1.ConfigMap, error) {
+	list, err := c.clientset.CoreV1().ConfigMaps("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListSecrets returns secrets in the current namespace
+func (c *Client) ListSecrets(ctx context.Context) ([]corev1.Secret, error) {
+	list, err := c.clientset.CoreV1().Secrets(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListAllSecrets returns secrets in all namespaces
+func (c *Client) ListAllSecrets(ctx context.Context) ([]corev1.Secret, error) {
+	list, err := c.clientset.CoreV1().Secrets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListReplicaSets returns replicasets in the current namespace
+func (c *Client) ListReplicaSets(ctx context.Context) ([]appsv1.ReplicaSet, error) {
+	list, err := c.clientset.AppsV1().ReplicaSets(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// GetDeployment returns a specific deployment
+func (c *Client) GetDeployment(ctx context.Context, name string) (*appsv1.Deployment, error) {
+	return c.clientset.AppsV1().Deployments(c.namespace).Get(ctx, name, metav1.GetOptions{})
+}
+
+// GetService returns a specific service
+func (c *Client) GetService(ctx context.Context, name string) (*corev1.Service, error) {
+	return c.clientset.CoreV1().Services(c.namespace).Get(ctx, name, metav1.GetOptions{})
+}
