@@ -36,7 +36,7 @@ make build
 ### Go Install
 
 ```bash
-go install github.com/victor/yaktui@latest
+go install github.com/vmsilvamolina/yaktui@latest
 ```
 
 ## Usage
@@ -140,23 +140,6 @@ yaktui/
 - [Bubbles](https://github.com/charmbracelet/bubbles) - TUI components
 - [Lip Gloss](https://github.com/charmbracelet/lipgloss) - Styling
 - [client-go](https://github.com/kubernetes/client-go) - Kubernetes client
-
-## Comparison with k9s
-
-| Feature | YAKTUI | k9s |
-|---------|--------|-----|
-| Pod management | ✅ | ✅ |
-| Logs streaming | ✅ | ✅ |
-| Pod relations view | ✅ | ❌ |
-| Namespace switching | ✅ | ✅ |
-| Multiple resource types | ✅ | ✅ |
-| Port forwarding | ❌ | ✅ |
-| Plugins | ❌ | ✅ |
-| Custom skins | ❌ | ✅ |
-| Benchmarking | ❌ | ✅ |
-| XRay view | ❌ | ✅ |
-| Modern TUI stack | ✅ | ❌ |
-| Lines of code | ~1500 | ~50,000+ |
 
 ## License
 
