@@ -1,6 +1,6 @@
 package main
 
-import "github.com/victor/yaktui/cmd"
+import "github.com/vmsilvamolina/yaktui/cmd"
 
 var (
 	version = "0.1.0"

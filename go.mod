@@ -1,4 +1,4 @@
-module github.com/victor/yaktui
+module github.com/vmsilvamolina/yaktui
 
 go 1.24.0
 

@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
-	"github.com/victor/yaktui/internal/client"
-	"github.com/victor/yaktui/internal/tui"
+	"github.com/vmsilvamolina/yaktui/internal/client"
+	"github.com/vmsilvamolina/yaktui/internal/tui"
 )
 
 var (

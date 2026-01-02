@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/victor/yaktui/internal/client"
+	"github.com/vmsilvamolina/yaktui/internal/client"
 	corev1 "k8s.io/api/core/v1"
 )
 
