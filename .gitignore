@@ -1,0 +1,38 @@
+# Claude Code
+.claude/
+
+# Build output
+bin/
+dist/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Environment
+.env
+.env.*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Debug
+debug
+__debug_bin*
