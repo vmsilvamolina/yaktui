@@ -12,6 +12,7 @@ type KeyMap struct {
 	Back     key.Binding
 	Tab      key.Binding
 	Logs     key.Binding
+	Shell    key.Binding
 	Describe key.Binding
 	Delete   key.Binding
 	AllNS    key.Binding
@@ -53,6 +54,10 @@ var DefaultKeyMap = KeyMap{
 		key.WithKeys("l"),
 		key.WithHelp("l", "logs"),
 	),
+	Shell: key.NewBinding(
+		key.WithKeys("s"),
+		key.WithHelp("s", "shell"),
+	),
 	Describe: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "describe"),
@@ -85,7 +90,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.Enter, k.Back, k.Tab},
-		{k.Logs, k.Describe, k.Delete},
+		{k.Logs, k.Shell, k.Describe, k.Delete},
 		{k.AllNS, k.Quit, k.Help},
 	}
 }

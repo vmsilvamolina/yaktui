@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"io"
+	"os/exec"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -13,8 +14,9 @@ import (
 
 // Client wraps the Kubernetes clientset
 type Client struct {
-	clientset *kubernetes.Clientset
-	namespace string
+	clientset  *kubernetes.Clientset
+	namespace  string
+	kubeconfig string
 }
 
 // New creates a new Kubernetes client
@@ -34,9 +36,24 @@ func New(kubeconfig, namespace string) (*Client, error) {
 	}
 
 	return &Client{
-		clientset: clientset,
-		namespace: namespace,
+		clientset:  clientset,
+		namespace:  namespace,
+		kubeconfig: kubeconfig,
 	}, nil
+}
+
+// ExecCmd returns a command to open an interactive shell in a pod container.
+// The caller is responsible for connecting stdin/stdout/stderr before running it.
+func (c *Client) ExecCmd(podName, containerName, namespace string) *exec.Cmd {
+	args := []string{"exec", "-it", podName, "-n", namespace}
+	if c.kubeconfig != "" {
+		args = append(args, "--kubeconfig", c.kubeconfig)
+	}
+	if containerName != "" {
+		args = append(args, "-c", containerName)
+	}
+	args = append(args, "--", "/bin/sh")
+	return exec.Command("kubectl", args...)
 }
 
 // CheckConnection verifies the connection to the Kubernetes cluster

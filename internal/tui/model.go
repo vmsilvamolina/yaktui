@@ -332,6 +332,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.Err
 		m.statusMessage = "Error: " + msg.Err.Error()
 		return m, nil
+
+	case ExecFinishedMsg:
+		if msg.Err != nil {
+			m.statusMessage = "exec: " + msg.Err.Error()
+		} else {
+			m.statusMessage = "exec session ended"
+		}
+		return m, nil
 	}
 
 	// Handle resource-specific messages
@@ -429,6 +437,18 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.logsView.SetSize(m.width-27, m.height-6)
 				m.currentView = ViewLogs
 				return m, m.logsView.Init()
+			}
+		}
+		if key.Matches(msg, m.keys.Shell) {
+			if pod := m.podsView.GetSelectedPod(); pod != nil {
+				containerName := ""
+				if len(pod.Spec.Containers) > 0 {
+					containerName = pod.Spec.Containers[0].Name
+				}
+				execCmd := m.client.ExecCmd(pod.Name, containerName, pod.Namespace)
+				return m, tea.ExecProcess(execCmd, func(err error) tea.Msg {
+					return ExecFinishedMsg{Err: err}
+				})
 			}
 		}
 		newView, cmd := m.podsView.Update(msg)
@@ -744,6 +764,7 @@ func (m Model) renderStatusBar() string {
 			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + "  " +
 				StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" relations") + "  " +
 				StatusKeyStyle.Render("l") + StatusDescStyle.Render(" logs") + "  " +
+				StatusKeyStyle.Render("s") + StatusDescStyle.Render(" shell") + "  " +
 				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		} else {
@@ -764,3 +785,4 @@ func (m Model) renderStatusBar() string {
 type TickMsg struct{}
 type ErrorMsg struct{ Err error }
 type AllNamespacesToggleMsg struct{}
+type ExecFinishedMsg struct{ Err error }
