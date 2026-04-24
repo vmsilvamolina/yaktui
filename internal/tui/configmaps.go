@@ -156,6 +156,20 @@ func (m *ConfigMapsModel) Count() int {
 	return len(m.configmaps)
 }
 
+// GetSelectedConfigMap returns the currently selected configmap
+func (m *ConfigMapsModel) GetSelectedConfigMap() *corev1.ConfigMap {
+	row := m.table.SelectedRow()
+	if row == nil || len(m.configmaps) == 0 {
+		return nil
+	}
+	for i := range m.configmaps {
+		if m.configmaps[i].Namespace == row[0] && m.configmaps[i].Name == row[1] {
+			return &m.configmaps[i]
+		}
+	}
+	return nil
+}
+
 // Refresh fetches fresh data
 func (m *ConfigMapsModel) Refresh() tea.Cmd {
 	return m.fetchConfigMaps

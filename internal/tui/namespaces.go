@@ -110,13 +110,27 @@ func (m *NamespacesModel) Refresh() tea.Cmd {
 	return m.fetchNamespaces
 }
 
-// GetSelectedNamespace returns the currently selected namespace
+// GetSelectedNamespace returns the currently selected namespace name
 func (m *NamespacesModel) GetSelectedNamespace() string {
 	row := m.table.SelectedRow()
 	if row == nil {
 		return ""
 	}
 	return row[0]
+}
+
+// GetSelectedNamespaceObj returns the currently selected namespace object
+func (m *NamespacesModel) GetSelectedNamespaceObj() *corev1.Namespace {
+	row := m.table.SelectedRow()
+	if row == nil || len(m.namespaces) == 0 {
+		return nil
+	}
+	for i := range m.namespaces {
+		if m.namespaces[i].Name == row[0] {
+			return &m.namespaces[i]
+		}
+	}
+	return nil
 }
 
 func (m *NamespacesModel) fetchNamespaces() tea.Msg {

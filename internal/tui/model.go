@@ -108,6 +108,7 @@ type Model struct {
 	// Special views
 	relationsView *RelationsModel
 	logsView      *LogsModel
+	describeView  *DescribeModel
 
 	// Status
 	statusMessage string
@@ -142,6 +143,12 @@ func (m Model) Init() tea.Cmd {
 		m.checkConnection,
 		tea.EnterAltScreen,
 	)
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
+		return TickMsg{}
+	})
 }
 
 // checkConnection verifies the connection to the cluster
@@ -224,6 +231,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+		if m.currentView == ViewDescribe && m.describeView != nil {
+			if key.Matches(msg, m.keys.Back) {
+				m.currentView = ViewList
+				m.describeView = nil
+				return m, nil
+			}
+			newView, cmd := m.describeView.Update(msg)
+			m.describeView = newView.(*DescribeModel)
+			return m, cmd
+		}
+
 		if m.currentView == ViewRelations && m.relationsView != nil {
 			if key.Matches(msg, m.keys.Back) {
 				m.currentView = ViewList
@@ -263,7 +281,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ConnectionResultMsg:
 		if msg.Connected {
 			m.connectionState = Connected
-			return m, m.loadAllResources()
+			return m, tea.Batch(m.loadAllResources(), tickCmd())
 		} else {
 			m.connectionState = ConnectionFailed
 			m.connectionError = msg.Err
@@ -303,6 +321,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.logsView != nil {
 			m.logsView.SetSize(contentWidth, contentHeight)
 		}
+		if m.describeView != nil {
+			m.describeView.SetSize(contentWidth, contentHeight)
+		}
 
 		return m, nil
 
@@ -325,8 +346,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case TickMsg:
-		// Refresh current view data
-		return m.refreshCurrentView()
+		newModel, cmd := m.refreshCurrentView()
+		return newModel, tea.Batch(cmd, tickCmd())
 
 	case ErrorMsg:
 		m.err = msg.Err
@@ -417,6 +438,49 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Navigate back to sidebar
 	if key.Matches(msg, m.keys.Left) || key.Matches(msg, m.keys.Back) {
 		m.focusedPanel = SidebarPanel
+		return m, nil
+	}
+
+	// Describe key — works for all resource types
+	if key.Matches(msg, m.keys.Describe) {
+		switch m.currentResource {
+		case ResourcePods:
+			if pod := m.podsView.GetSelectedPod(); pod != nil {
+				m.describeView = NewDescribeModel(pod.Name, pod)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
+		case ResourceDeployments:
+			if dep := m.deploymentsView.GetSelectedDeployment(); dep != nil {
+				m.describeView = NewDescribeModel(dep.Name, dep)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
+		case ResourceServices:
+			if svc := m.servicesView.GetSelectedService(); svc != nil {
+				m.describeView = NewDescribeModel(svc.Name, svc)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
+		case ResourceConfigMaps:
+			if cm := m.configmapsView.GetSelectedConfigMap(); cm != nil {
+				m.describeView = NewDescribeModel(cm.Name, cm)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
+		case ResourceSecrets:
+			if secret := m.secretsView.GetSelectedSecret(); secret != nil {
+				m.describeView = NewDescribeModelForSecret(secret.Name, secret)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
+		case ResourceNamespaces:
+			if ns := m.namespacesView.GetSelectedNamespaceObj(); ns != nil {
+				m.describeView = NewDescribeModel(ns.Name, ns)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
+		}
 		return m, nil
 	}
 
@@ -652,6 +716,11 @@ func (m Model) renderContent() string {
 	var count int
 
 	switch m.currentView {
+	case ViewDescribe:
+		if m.describeView != nil {
+			content = m.describeView.View()
+			title = "YAML: " + m.describeView.GetTitle()
+		}
 	case ViewLogs:
 		if m.logsView != nil {
 			content = m.logsView.View()
@@ -751,6 +820,11 @@ func (m Model) renderStatusBar() string {
 	var help string
 
 	switch m.currentView {
+	case ViewDescribe:
+		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" scroll") + "  " +
+			StatusKeyStyle.Render("g/G") + StatusDescStyle.Render(" top/bottom") + "  " +
+			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + "  " +
+			StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 	case ViewLogs:
 		help = StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + "  " +
 			StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
@@ -765,10 +839,12 @@ func (m Model) renderStatusBar() string {
 				StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" relations") + "  " +
 				StatusKeyStyle.Render("l") + StatusDescStyle.Render(" logs") + "  " +
 				StatusKeyStyle.Render("s") + StatusDescStyle.Render(" shell") + "  " +
+				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + "  " +
 				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		} else {
 			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + "  " +
+				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + "  " +
 				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		}

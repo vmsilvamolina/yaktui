@@ -160,6 +160,20 @@ func (m *DeploymentsModel) Count() int {
 	return len(m.deployments)
 }
 
+// GetSelectedDeployment returns the currently selected deployment
+func (m *DeploymentsModel) GetSelectedDeployment() *appsv1.Deployment {
+	row := m.table.SelectedRow()
+	if row == nil || len(m.deployments) == 0 {
+		return nil
+	}
+	for i := range m.deployments {
+		if m.deployments[i].Namespace == row[0] && m.deployments[i].Name == row[1] {
+			return &m.deployments[i]
+		}
+	}
+	return nil
+}
+
 // Refresh fetches fresh data
 func (m *DeploymentsModel) Refresh() tea.Cmd {
 	return m.fetchDeployments
