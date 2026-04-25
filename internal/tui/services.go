@@ -161,6 +161,20 @@ func (m *ServicesModel) Count() int {
 	return len(m.services)
 }
 
+// GetSelectedService returns the currently selected service
+func (m *ServicesModel) GetSelectedService() *corev1.Service {
+	row := m.table.SelectedRow()
+	if row == nil || len(m.services) == 0 {
+		return nil
+	}
+	for i := range m.services {
+		if m.services[i].Namespace == row[0] && m.services[i].Name == row[1] {
+			return &m.services[i]
+		}
+	}
+	return nil
+}
+
 // Refresh fetches fresh data
 func (m *ServicesModel) Refresh() tea.Cmd {
 	return m.fetchServices

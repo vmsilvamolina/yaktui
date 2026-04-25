@@ -158,6 +158,20 @@ func (m *SecretsModel) Count() int {
 	return len(m.secrets)
 }
 
+// GetSelectedSecret returns the currently selected secret
+func (m *SecretsModel) GetSelectedSecret() *corev1.Secret {
+	row := m.table.SelectedRow()
+	if row == nil || len(m.secrets) == 0 {
+		return nil
+	}
+	for i := range m.secrets {
+		if m.secrets[i].Namespace == row[0] && m.secrets[i].Name == row[1] {
+			return &m.secrets[i]
+		}
+	}
+	return nil
+}
+
 // Refresh fetches fresh data
 func (m *SecretsModel) Refresh() tea.Cmd {
 	return m.fetchSecrets
