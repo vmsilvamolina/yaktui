@@ -29,6 +29,7 @@ const (
 	ResourceConfigMaps
 	ResourceSecrets
 	ResourceNamespaces
+	ResourceNodes
 )
 
 func (r ResourceType) String() string {
@@ -39,6 +40,7 @@ func (r ResourceType) String() string {
 		"ConfigMaps",
 		"Secrets",
 		"Namespaces",
+		"Nodes",
 	}[r]
 }
 
@@ -49,6 +51,7 @@ var resourceTypes = []ResourceType{
 	ResourceConfigMaps,
 	ResourceSecrets,
 	ResourceNamespaces,
+	ResourceNodes,
 }
 
 // View represents the current view state
@@ -104,6 +107,7 @@ type Model struct {
 	configmapsView  *ConfigMapsModel
 	secretsView     *SecretsModel
 	namespacesView  *NamespacesModel
+	nodesView       *NodesModel
 
 	// Special views
 	relationsView *RelationsModel
@@ -133,6 +137,7 @@ func NewModel(c *client.Client, kubeconfig string) Model {
 		configmapsView:  NewConfigMapsModel(c),
 		secretsView:     NewSecretsModel(c),
 		namespacesView:  NewNamespacesModel(c),
+		nodesView:       NewNodesModel(c),
 	}
 }
 
@@ -176,6 +181,7 @@ func (m Model) loadAllResources() tea.Cmd {
 		m.secretsView.Init(),
 		m.secretsView.InitAllNamespaces(),
 		m.namespacesView.Init(),
+		m.nodesView.Init(),
 	)
 }
 
@@ -315,6 +321,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.namespacesView != nil {
 			m.namespacesView.SetSize(contentWidth, contentHeight)
 		}
+		if m.nodesView != nil {
+			m.nodesView.SetSize(contentWidth, contentHeight)
+		}
 		if m.relationsView != nil {
 			m.relationsView.SetSize(contentWidth, contentHeight)
 		}
@@ -401,6 +410,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.namespacesView = newView.(*NamespacesModel)
 			return m, cmd
 		}
+	case NodesMsg:
+		if m.nodesView != nil {
+			newView, cmd := m.nodesView.Update(msg)
+			m.nodesView = newView.(*NodesModel)
+			return m, cmd
+		}
 	}
 
 	// Update current resource view
@@ -477,6 +492,12 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case ResourceNamespaces:
 			if ns := m.namespacesView.GetSelectedNamespaceObj(); ns != nil {
 				m.describeView = NewDescribeModel(ns.Name, ns)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
+		case ResourceNodes:
+			if node := m.nodesView.GetSelectedNode(); node != nil {
+				m.describeView = NewDescribeModel(node.Name, node)
 				m.describeView.SetSize(m.width-27, m.height-6)
 				m.currentView = ViewDescribe
 			}
@@ -564,6 +585,11 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		newView, cmd := m.namespacesView.Update(msg)
 		m.namespacesView = newView.(*NamespacesModel)
 		return m, cmd
+
+	case ResourceNodes:
+		newView, cmd := m.nodesView.Update(msg)
+		m.nodesView = newView.(*NodesModel)
+		return m, cmd
 	}
 
 	return m, nil
@@ -595,6 +621,10 @@ func (m Model) updateCurrentView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newView, cmd := m.namespacesView.Update(msg)
 		m.namespacesView = newView.(*NamespacesModel)
 		return m, cmd
+	case ResourceNodes:
+		newView, cmd := m.nodesView.Update(msg)
+		m.nodesView = newView.(*NodesModel)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -613,6 +643,8 @@ func (m Model) initCurrentView() tea.Cmd {
 		return m.secretsView.Init()
 	case ResourceNamespaces:
 		return m.namespacesView.Init()
+	case ResourceNodes:
+		return m.nodesView.Init()
 	}
 	return nil
 }
@@ -631,6 +663,8 @@ func (m Model) refreshCurrentView() (tea.Model, tea.Cmd) {
 		return m, m.secretsView.Refresh()
 	case ResourceNamespaces:
 		return m, m.namespacesView.Refresh()
+	case ResourceNodes:
+		return m, m.nodesView.Refresh()
 	}
 	return m, nil
 }
@@ -751,6 +785,9 @@ func (m Model) renderContent() string {
 		case ResourceNamespaces:
 			content = m.namespacesView.View()
 			count = m.namespacesView.Count()
+		case ResourceNodes:
+			content = m.nodesView.View()
+			count = m.nodesView.Count()
 		}
 		// Build title with namespace info and count
 		nsInfo := ""

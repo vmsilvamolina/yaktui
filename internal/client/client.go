@@ -233,3 +233,12 @@ func (c *Client) GetDeployment(ctx context.Context, name string) (*appsv1.Deploy
 func (c *Client) GetService(ctx context.Context, name string) (*corev1.Service, error) {
 	return c.clientset.CoreV1().Services(c.namespace).Get(ctx, name, metav1.GetOptions{})
 }
+
+// ListNodes returns all nodes in the cluster
+func (c *Client) ListNodes(ctx context.Context) ([]corev1.Node, error) {
+	list, err := c.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
