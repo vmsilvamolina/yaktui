@@ -114,6 +114,10 @@ type Model struct {
 	logsView      *LogsModel
 	describeView  *DescribeModel
 
+	// Delete confirmation
+	confirmDelete       bool
+	confirmDeleteTarget string
+
 	// Status
 	statusMessage string
 	err           error
@@ -195,6 +199,19 @@ type ConnectionResultMsg struct {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Confirmation modal intercepts all keys
+		if m.confirmDelete {
+			switch msg.String() {
+			case "y", "Y":
+				m.confirmDelete = false
+				return m, m.deletePod(m.confirmDeleteTarget)
+			case "n", "N", "esc":
+				m.confirmDelete = false
+				m.confirmDeleteTarget = ""
+			}
+			return m, nil
+		}
+
 		// Global keys
 		if key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
@@ -370,6 +387,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMessage = "exec session ended"
 		}
 		return m, nil
+
+	case DeletePodResultMsg:
+		if msg.Err != nil {
+			m.statusMessage = "error deleting " + msg.Name + ": " + msg.Err.Error()
+		} else {
+			m.statusMessage = "deleted pod: " + msg.Name
+			return m, m.podsView.Refresh()
+		}
+		return m, nil
 	}
 
 	// Handle resource-specific messages
@@ -534,6 +560,13 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.ExecProcess(execCmd, func(err error) tea.Msg {
 					return ExecFinishedMsg{Err: err}
 				})
+			}
+		}
+		if key.Matches(msg, m.keys.Delete) {
+			if pod := m.podsView.GetSelectedPod(); pod != nil {
+				m.confirmDelete = true
+				m.confirmDeleteTarget = pod.Name
+				return m, nil
 			}
 		}
 		newView, cmd := m.podsView.Update(msg)
@@ -856,6 +889,15 @@ func (m Model) renderConnectionErrorView(header string) string {
 func (m Model) renderStatusBar() string {
 	var help string
 
+	if m.confirmDelete {
+		warning := lipgloss.NewStyle().Foreground(ColorError).Bold(true).Render("Delete pod")
+		name := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true).Render(m.confirmDeleteTarget)
+		confirm := StatusKeyStyle.Render("y") + StatusDescStyle.Render(" confirm")
+		cancel := StatusKeyStyle.Render("n/esc") + StatusDescStyle.Render(" cancel")
+		help = warning + " " + name + "?   " + confirm + "   " + cancel
+		return StatusBarStyle.Width(m.width).Render(help)
+	}
+
 	switch m.currentView {
 	case ViewDescribe:
 		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" scroll") + "  " +
@@ -894,8 +936,21 @@ func (m Model) renderStatusBar() string {
 	return StatusBarStyle.Width(m.width).Render(help)
 }
 
+func (m Model) deletePod(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := m.client.DeletePod(ctx, name)
+		return DeletePodResultMsg{Name: name, Err: err}
+	}
+}
+
 // Message types
 type TickMsg struct{}
 type ErrorMsg struct{ Err error }
 type AllNamespacesToggleMsg struct{}
 type ExecFinishedMsg struct{ Err error }
+type DeletePodResultMsg struct {
+	Name string
+	Err  error
+}
