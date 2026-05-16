@@ -242,3 +242,21 @@ func (c *Client) ListNodes(ctx context.Context) ([]corev1.Node, error) {
 	}
 	return list.Items, nil
 }
+
+// ListStatefulSets returns statefulsets in the current namespace
+func (c *Client) ListStatefulSets(ctx context.Context) ([]appsv1.StatefulSet, error) {
+	list, err := c.clientset.AppsV1().StatefulSets(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListAllStatefulSets returns statefulsets in all namespaces
+func (c *Client) ListAllStatefulSets(ctx context.Context) ([]appsv1.StatefulSet, error) {
+	list, err := c.clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}

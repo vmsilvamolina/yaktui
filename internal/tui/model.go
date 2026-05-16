@@ -30,6 +30,7 @@ const (
 	ResourceSecrets
 	ResourceNamespaces
 	ResourceNodes
+	ResourceStatefulSets
 )
 
 func (r ResourceType) String() string {
@@ -41,12 +42,14 @@ func (r ResourceType) String() string {
 		"Secrets",
 		"Namespaces",
 		"Nodes",
+		"StatefulSets",
 	}[r]
 }
 
 var resourceTypes = []ResourceType{
 	ResourcePods,
 	ResourceDeployments,
+	ResourceStatefulSets,
 	ResourceServices,
 	ResourceConfigMaps,
 	ResourceSecrets,
@@ -107,7 +110,8 @@ type Model struct {
 	configmapsView  *ConfigMapsModel
 	secretsView     *SecretsModel
 	namespacesView  *NamespacesModel
-	nodesView       *NodesModel
+	nodesView        *NodesModel
+	statefulSetsView *StatefulSetsModel
 
 	// Special views
 	relationsView *RelationsModel
@@ -141,7 +145,8 @@ func NewModel(c *client.Client, kubeconfig string) Model {
 		configmapsView:  NewConfigMapsModel(c),
 		secretsView:     NewSecretsModel(c),
 		namespacesView:  NewNamespacesModel(c),
-		nodesView:       NewNodesModel(c),
+		nodesView:        NewNodesModel(c),
+		statefulSetsView: NewStatefulSetsModel(c),
 	}
 }
 
@@ -186,6 +191,8 @@ func (m Model) loadAllResources() tea.Cmd {
 		m.secretsView.InitAllNamespaces(),
 		m.namespacesView.Init(),
 		m.nodesView.Init(),
+		m.statefulSetsView.Init(),
+		m.statefulSetsView.InitAllNamespaces(),
 	)
 }
 
@@ -238,6 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.servicesView.SetShowAllNamespaces(m.showAllNamespaces)
 			m.configmapsView.SetShowAllNamespaces(m.showAllNamespaces)
 			m.secretsView.SetShowAllNamespaces(m.showAllNamespaces)
+			m.statefulSetsView.SetShowAllNamespaces(m.showAllNamespaces)
 			// No need to fetch again - SetShowAllNamespaces uses cached data
 			return m, nil
 		}
@@ -341,6 +349,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.nodesView != nil {
 			m.nodesView.SetSize(contentWidth, contentHeight)
 		}
+		if m.statefulSetsView != nil {
+			m.statefulSetsView.SetSize(contentWidth, contentHeight)
+		}
 		if m.relationsView != nil {
 			m.relationsView.SetSize(contentWidth, contentHeight)
 		}
@@ -442,6 +453,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nodesView = newView.(*NodesModel)
 			return m, cmd
 		}
+	case StatefulSetsMsg, StatefulSetsAllNSMsg:
+		if m.statefulSetsView != nil {
+			newView, cmd := m.statefulSetsView.Update(msg)
+			m.statefulSetsView = newView.(*StatefulSetsModel)
+			return m, cmd
+		}
 	}
 
 	// Update current resource view
@@ -527,6 +544,12 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.describeView.SetSize(m.width-27, m.height-6)
 				m.currentView = ViewDescribe
 			}
+		case ResourceStatefulSets:
+			if ss := m.statefulSetsView.GetSelectedStatefulSet(); ss != nil {
+				m.describeView = NewDescribeModel(ss.Name, ss)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
 		}
 		return m, nil
 	}
@@ -605,6 +628,7 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.servicesView.SetShowAllNamespaces(false)
 				m.configmapsView.SetShowAllNamespaces(false)
 				m.secretsView.SetShowAllNamespaces(false)
+				m.statefulSetsView.SetShowAllNamespaces(false)
 				// Refresh all views
 				return m, tea.Batch(
 					m.podsView.Init(),
@@ -612,6 +636,7 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.servicesView.Init(),
 					m.configmapsView.Init(),
 					m.secretsView.Init(),
+					m.statefulSetsView.Init(),
 				)
 			}
 		}
@@ -622,6 +647,11 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ResourceNodes:
 		newView, cmd := m.nodesView.Update(msg)
 		m.nodesView = newView.(*NodesModel)
+		return m, cmd
+
+	case ResourceStatefulSets:
+		newView, cmd := m.statefulSetsView.Update(msg)
+		m.statefulSetsView = newView.(*StatefulSetsModel)
 		return m, cmd
 	}
 
@@ -658,6 +688,10 @@ func (m Model) updateCurrentView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newView, cmd := m.nodesView.Update(msg)
 		m.nodesView = newView.(*NodesModel)
 		return m, cmd
+	case ResourceStatefulSets:
+		newView, cmd := m.statefulSetsView.Update(msg)
+		m.statefulSetsView = newView.(*StatefulSetsModel)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -678,6 +712,8 @@ func (m Model) initCurrentView() tea.Cmd {
 		return m.namespacesView.Init()
 	case ResourceNodes:
 		return m.nodesView.Init()
+	case ResourceStatefulSets:
+		return m.statefulSetsView.Init()
 	}
 	return nil
 }
@@ -698,6 +734,8 @@ func (m Model) refreshCurrentView() (tea.Model, tea.Cmd) {
 		return m, m.namespacesView.Refresh()
 	case ResourceNodes:
 		return m, m.nodesView.Refresh()
+	case ResourceStatefulSets:
+		return m, m.statefulSetsView.Refresh()
 	}
 	return m, nil
 }
@@ -821,6 +859,9 @@ func (m Model) renderContent() string {
 		case ResourceNodes:
 			content = m.nodesView.View()
 			count = m.nodesView.Count()
+		case ResourceStatefulSets:
+			content = m.statefulSetsView.View()
+			count = m.statefulSetsView.Count()
 		}
 		// Build title with namespace info and count
 		nsInfo := ""
