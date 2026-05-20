@@ -260,3 +260,21 @@ func (c *Client) ListAllStatefulSets(ctx context.Context) ([]appsv1.StatefulSet,
 	}
 	return list.Items, nil
 }
+
+// ListDaemonSets returns daemonsets in the current namespace
+func (c *Client) ListDaemonSets(ctx context.Context) ([]appsv1.DaemonSet, error) {
+	list, err := c.clientset.AppsV1().DaemonSets(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListAllDaemonSets returns daemonsets in all namespaces
+func (c *Client) ListAllDaemonSets(ctx context.Context) ([]appsv1.DaemonSet, error) {
+	list, err := c.clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}

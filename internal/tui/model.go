@@ -31,6 +31,7 @@ const (
 	ResourceNamespaces
 	ResourceNodes
 	ResourceStatefulSets
+	ResourceDaemonSets
 )
 
 func (r ResourceType) String() string {
@@ -43,6 +44,7 @@ func (r ResourceType) String() string {
 		"Namespaces",
 		"Nodes",
 		"StatefulSets",
+		"DaemonSets",
 	}[r]
 }
 
@@ -50,6 +52,7 @@ var resourceTypes = []ResourceType{
 	ResourcePods,
 	ResourceDeployments,
 	ResourceStatefulSets,
+	ResourceDaemonSets,
 	ResourceServices,
 	ResourceConfigMaps,
 	ResourceSecrets,
@@ -112,6 +115,7 @@ type Model struct {
 	namespacesView  *NamespacesModel
 	nodesView        *NodesModel
 	statefulSetsView *StatefulSetsModel
+	daemonSetsView   *DaemonSetsModel
 
 	// Special views
 	relationsView *RelationsModel
@@ -147,6 +151,7 @@ func NewModel(c *client.Client, kubeconfig string) Model {
 		namespacesView:  NewNamespacesModel(c),
 		nodesView:        NewNodesModel(c),
 		statefulSetsView: NewStatefulSetsModel(c),
+		daemonSetsView:   NewDaemonSetsModel(c),
 	}
 }
 
@@ -193,6 +198,8 @@ func (m Model) loadAllResources() tea.Cmd {
 		m.nodesView.Init(),
 		m.statefulSetsView.Init(),
 		m.statefulSetsView.InitAllNamespaces(),
+		m.daemonSetsView.Init(),
+		m.daemonSetsView.InitAllNamespaces(),
 	)
 }
 
@@ -246,6 +253,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.configmapsView.SetShowAllNamespaces(m.showAllNamespaces)
 			m.secretsView.SetShowAllNamespaces(m.showAllNamespaces)
 			m.statefulSetsView.SetShowAllNamespaces(m.showAllNamespaces)
+			m.daemonSetsView.SetShowAllNamespaces(m.showAllNamespaces)
 			// No need to fetch again - SetShowAllNamespaces uses cached data
 			return m, nil
 		}
@@ -351,6 +359,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.statefulSetsView != nil {
 			m.statefulSetsView.SetSize(contentWidth, contentHeight)
+		}
+		if m.daemonSetsView != nil {
+			m.daemonSetsView.SetSize(contentWidth, contentHeight)
 		}
 		if m.relationsView != nil {
 			m.relationsView.SetSize(contentWidth, contentHeight)
@@ -459,6 +470,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statefulSetsView = newView.(*StatefulSetsModel)
 			return m, cmd
 		}
+	case DaemonSetsMsg, DaemonSetsAllNSMsg:
+		if m.daemonSetsView != nil {
+			newView, cmd := m.daemonSetsView.Update(msg)
+			m.daemonSetsView = newView.(*DaemonSetsModel)
+			return m, cmd
+		}
 	}
 
 	// Update current resource view
@@ -550,6 +567,12 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.describeView.SetSize(m.width-27, m.height-6)
 				m.currentView = ViewDescribe
 			}
+		case ResourceDaemonSets:
+			if ds := m.daemonSetsView.GetSelectedDaemonSet(); ds != nil {
+				m.describeView = NewDescribeModel(ds.Name, ds)
+				m.describeView.SetSize(m.width-27, m.height-6)
+				m.currentView = ViewDescribe
+			}
 		}
 		return m, nil
 	}
@@ -629,6 +652,7 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.configmapsView.SetShowAllNamespaces(false)
 				m.secretsView.SetShowAllNamespaces(false)
 				m.statefulSetsView.SetShowAllNamespaces(false)
+				m.daemonSetsView.SetShowAllNamespaces(false)
 				// Refresh all views
 				return m, tea.Batch(
 					m.podsView.Init(),
@@ -637,6 +661,7 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.configmapsView.Init(),
 					m.secretsView.Init(),
 					m.statefulSetsView.Init(),
+					m.daemonSetsView.Init(),
 				)
 			}
 		}
@@ -652,6 +677,11 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ResourceStatefulSets:
 		newView, cmd := m.statefulSetsView.Update(msg)
 		m.statefulSetsView = newView.(*StatefulSetsModel)
+		return m, cmd
+
+	case ResourceDaemonSets:
+		newView, cmd := m.daemonSetsView.Update(msg)
+		m.daemonSetsView = newView.(*DaemonSetsModel)
 		return m, cmd
 	}
 
@@ -692,6 +722,10 @@ func (m Model) updateCurrentView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newView, cmd := m.statefulSetsView.Update(msg)
 		m.statefulSetsView = newView.(*StatefulSetsModel)
 		return m, cmd
+	case ResourceDaemonSets:
+		newView, cmd := m.daemonSetsView.Update(msg)
+		m.daemonSetsView = newView.(*DaemonSetsModel)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -714,6 +748,8 @@ func (m Model) initCurrentView() tea.Cmd {
 		return m.nodesView.Init()
 	case ResourceStatefulSets:
 		return m.statefulSetsView.Init()
+	case ResourceDaemonSets:
+		return m.daemonSetsView.Init()
 	}
 	return nil
 }
@@ -736,6 +772,8 @@ func (m Model) refreshCurrentView() (tea.Model, tea.Cmd) {
 		return m, m.nodesView.Refresh()
 	case ResourceStatefulSets:
 		return m, m.statefulSetsView.Refresh()
+	case ResourceDaemonSets:
+		return m, m.daemonSetsView.Refresh()
 	}
 	return m, nil
 }
@@ -862,6 +900,9 @@ func (m Model) renderContent() string {
 		case ResourceStatefulSets:
 			content = m.statefulSetsView.View()
 			count = m.statefulSetsView.Count()
+		case ResourceDaemonSets:
+			content = m.daemonSetsView.View()
+			count = m.daemonSetsView.Count()
 		}
 		// Build title with namespace info and count
 		nsInfo := ""
