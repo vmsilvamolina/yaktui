@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -21,6 +22,8 @@ type DeploymentsModel struct {
 	width             int
 	height            int
 	loading           bool
+	filterQuery       string
+	filteredCount     int
 	// Cache for both modes
 	deploymentsAllNS    []appsv1.Deployment
 	deploymentsSingleNS []appsv1.Deployment
@@ -156,8 +159,14 @@ func (m *DeploymentsModel) View() string {
 }
 
 // Count returns the number of deployments
+// SetFilter sets the name filter and re-renders the table
+func (m *DeploymentsModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
 func (m *DeploymentsModel) Count() int {
-	return len(m.deployments)
+	return m.filteredCount
 }
 
 // GetSelectedDeployment returns the currently selected deployment
@@ -200,24 +209,28 @@ func (m *DeploymentsModel) fetchDeployments() tea.Msg {
 }
 
 func (m *DeploymentsModel) updateTable() {
-	rows := make([]table.Row, len(m.deployments))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, dep := range m.deployments {
+	for _, dep := range m.deployments {
+		if q != "" && !strings.Contains(strings.ToLower(dep.Name), q) {
+			continue
+		}
 		var replicas int32 = 0
 		if dep.Spec.Replicas != nil {
 			replicas = *dep.Spec.Replicas
 		}
-
-		rows[i] = table.Row{
+		rows = append(rows, table.Row{
 			dep.Namespace,
 			dep.Name,
 			fmt.Sprintf("%d/%d", dep.Status.ReadyReplicas, replicas),
 			fmt.Sprintf("%d", dep.Status.UpdatedReplicas),
 			fmt.Sprintf("%d", dep.Status.AvailableReplicas),
 			formatAge(dep.CreationTimestamp.Time),
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 

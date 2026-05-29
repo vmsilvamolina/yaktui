@@ -126,6 +126,10 @@ type Model struct {
 	confirmDelete       bool
 	confirmDeleteTarget string
 
+	// Search/filter
+	filterMode  bool
+	filterQuery string
+
 	// Status
 	statusMessage string
 	err           error
@@ -222,6 +226,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "n", "N", "esc":
 				m.confirmDelete = false
 				m.confirmDeleteTarget = ""
+			}
+			return m, nil
+		}
+
+		// Filter mode intercepts input
+		if m.filterMode {
+			switch msg.String() {
+			case "esc":
+				m.filterMode = false
+				m.filterQuery = ""
+				m.setFilterOnCurrentView()
+			case "enter":
+				m.filterMode = false
+			case "backspace", "ctrl+h":
+				if len(m.filterQuery) > 0 {
+					runes := []rune(m.filterQuery)
+					m.filterQuery = string(runes[:len(runes)-1])
+					m.setFilterOnCurrentView()
+				}
+			default:
+				if key.Matches(msg, m.keys.Up) || key.Matches(msg, m.keys.Down) {
+					return m.updateCurrentView(msg)
+				}
+				if len(msg.Runes) > 0 {
+					m.filterQuery += string(msg.Runes)
+					m.setFilterOnCurrentView()
+				}
 			}
 			return m, nil
 		}
@@ -487,31 +518,45 @@ func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Up):
 		if m.sidebarSelected > 0 {
 			m.sidebarSelected--
-			// Change resource but keep focus on sidebar
 			m.currentResource = m.sidebarItems[m.sidebarSelected]
-			m.focusedPanel = SidebarPanel // Explicitly keep focus on sidebar
+			m.focusedPanel = SidebarPanel
+			m.filterMode = false
+			m.filterQuery = ""
 			return m, m.initCurrentView()
 		}
 	case key.Matches(msg, m.keys.Down):
 		if m.sidebarSelected < len(m.sidebarItems)-1 {
 			m.sidebarSelected++
-			// Change resource but keep focus on sidebar
 			m.currentResource = m.sidebarItems[m.sidebarSelected]
-			m.focusedPanel = SidebarPanel // Explicitly keep focus on sidebar
+			m.focusedPanel = SidebarPanel
+			m.filterMode = false
+			m.filterQuery = ""
 			return m, m.initCurrentView()
 		}
 	case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.Right):
-		// Only change focus when explicitly pressing Enter/Right
 		m.currentResource = m.sidebarItems[m.sidebarSelected]
 		m.focusedPanel = ContentPanel
+		m.filterMode = false
+		m.filterQuery = ""
 		return m, m.initCurrentView()
 	}
 	return m, nil
 }
 
 func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Navigate back to sidebar
+	// Enter filter mode
+	if key.Matches(msg, m.keys.Search) && m.currentView == ViewList {
+		m.filterMode = true
+		return m, nil
+	}
+
+	// Navigate back to sidebar (clears active filter first)
 	if key.Matches(msg, m.keys.Left) || key.Matches(msg, m.keys.Back) {
+		if m.filterQuery != "" {
+			m.filterQuery = ""
+			m.setFilterOnCurrentView()
+			return m, nil
+		}
 		m.focusedPanel = SidebarPanel
 		return m, nil
 	}
@@ -754,6 +799,29 @@ func (m Model) initCurrentView() tea.Cmd {
 	return nil
 }
 
+func (m *Model) setFilterOnCurrentView() {
+	switch m.currentResource {
+	case ResourcePods:
+		m.podsView.SetFilter(m.filterQuery)
+	case ResourceDeployments:
+		m.deploymentsView.SetFilter(m.filterQuery)
+	case ResourceServices:
+		m.servicesView.SetFilter(m.filterQuery)
+	case ResourceConfigMaps:
+		m.configmapsView.SetFilter(m.filterQuery)
+	case ResourceSecrets:
+		m.secretsView.SetFilter(m.filterQuery)
+	case ResourceNamespaces:
+		m.namespacesView.SetFilter(m.filterQuery)
+	case ResourceNodes:
+		m.nodesView.SetFilter(m.filterQuery)
+	case ResourceStatefulSets:
+		m.statefulSetsView.SetFilter(m.filterQuery)
+	case ResourceDaemonSets:
+		m.daemonSetsView.SetFilter(m.filterQuery)
+	}
+}
+
 func (m Model) refreshCurrentView() (tea.Model, tea.Cmd) {
 	switch m.currentResource {
 	case ResourcePods:
@@ -904,14 +972,18 @@ func (m Model) renderContent() string {
 			content = m.daemonSetsView.View()
 			count = m.daemonSetsView.Count()
 		}
-		// Build title with namespace info and count
+		// Build title with namespace info, count, and active filter
 		nsInfo := ""
 		if m.showAllNamespaces {
 			nsInfo = "(all namespaces)"
 		} else {
 			nsInfo = "[" + m.client.Namespace() + "]"
 		}
-		title = fmt.Sprintf("%s %s (%d)", m.currentResource.String(), nsInfo, count)
+		if m.filterQuery != "" {
+			title = fmt.Sprintf("%s %s (%d) /%s", m.currentResource.String(), nsInfo, count, m.filterQuery)
+		} else {
+			title = fmt.Sprintf("%s %s (%d)", m.currentResource.String(), nsInfo, count)
+		}
 	}
 
 	// Account for sidebar (20) + borders (4) + horizontal margins (2)
@@ -980,6 +1052,16 @@ func (m Model) renderStatusBar() string {
 		return StatusBarStyle.Width(m.width).Render(help)
 	}
 
+	if m.filterMode {
+		cursor := lipgloss.NewStyle().Foreground(ColorAccent).Render("█")
+		prompt := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render("/")
+		help = prompt + " " + m.filterQuery + cursor + "   " +
+			StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" navigate") + "  " +
+			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" confirm") + "  " +
+			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" clear")
+		return StatusBarStyle.Width(m.width).Render(help)
+	}
+
 	switch m.currentView {
 	case ViewDescribe:
 		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" scroll") + "  " +
@@ -1002,11 +1084,13 @@ func (m Model) renderStatusBar() string {
 				StatusKeyStyle.Render("s") + StatusDescStyle.Render(" shell") + "  " +
 				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + "  " +
 				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
+				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + "  " +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		} else {
 			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + "  " +
 				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + "  " +
 				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
+				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + "  " +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		}
 	}

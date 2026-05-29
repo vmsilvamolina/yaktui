@@ -16,6 +16,7 @@ type KeyMap struct {
 	Describe key.Binding
 	Delete   key.Binding
 	AllNS    key.Binding
+	Search   key.Binding
 	Quit     key.Binding
 	Help     key.Binding
 }
@@ -69,6 +70,10 @@ var DefaultKeyMap = KeyMap{
 	AllNS: key.NewBinding(
 		key.WithKeys("a"),
 		key.WithHelp("a", "all namespaces"),
+	),
+	Search: key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "search"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c"),

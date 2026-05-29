@@ -22,6 +22,8 @@ type ServicesModel struct {
 	width             int
 	height            int
 	loading           bool
+	filterQuery       string
+	filteredCount     int
 	// Cache for both modes
 	servicesAllNS    []corev1.Service
 	servicesSingleNS []corev1.Service
@@ -157,8 +159,14 @@ func (m *ServicesModel) View() string {
 }
 
 // Count returns the number of services
+// SetFilter sets the name filter and re-renders the table
+func (m *ServicesModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
 func (m *ServicesModel) Count() int {
-	return len(m.services)
+	return m.filteredCount
 }
 
 // GetSelectedService returns the currently selected service
@@ -201,19 +209,24 @@ func (m *ServicesModel) fetchServices() tea.Msg {
 }
 
 func (m *ServicesModel) updateTable() {
-	rows := make([]table.Row, len(m.services))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, svc := range m.services {
-		rows[i] = table.Row{
+	for _, svc := range m.services {
+		if q != "" && !strings.Contains(strings.ToLower(svc.Name), q) {
+			continue
+		}
+		rows = append(rows, table.Row{
 			svc.Namespace,
 			svc.Name,
 			string(svc.Spec.Type),
 			svc.Spec.ClusterIP,
 			formatServicePorts(svc.Spec.Ports),
 			formatAge(svc.CreationTimestamp.Time),
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 

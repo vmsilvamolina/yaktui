@@ -13,12 +13,14 @@ import (
 )
 
 type NodesModel struct {
-	client  *client.Client
-	table   table.Model
-	nodes   []corev1.Node
-	width   int
-	height  int
-	loading bool
+	client        *client.Client
+	table         table.Model
+	nodes         []corev1.Node
+	width         int
+	height        int
+	loading       bool
+	filterQuery   string
+	filteredCount int
 }
 
 func NewNodesModel(c *client.Client) *NodesModel {
@@ -99,8 +101,14 @@ func (m *NodesModel) View() string {
 	return m.table.View()
 }
 
+// SetFilter sets the name filter and re-renders the table
+func (m *NodesModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
 func (m *NodesModel) Count() int {
-	return len(m.nodes)
+	return m.filteredCount
 }
 
 func (m *NodesModel) Refresh() tea.Cmd {
@@ -133,18 +141,23 @@ func (m *NodesModel) fetchNodes() tea.Msg {
 }
 
 func (m *NodesModel) updateTable() {
-	rows := make([]table.Row, len(m.nodes))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, node := range m.nodes {
-		rows[i] = table.Row{
+	for _, node := range m.nodes {
+		if q != "" && !strings.Contains(strings.ToLower(node.Name), q) {
+			continue
+		}
+		rows = append(rows, table.Row{
 			node.Name,
 			nodeStatus(node),
 			nodeRoles(node),
 			formatAge(node.CreationTimestamp.Time),
 			node.Status.NodeInfo.KubeletVersion,
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 

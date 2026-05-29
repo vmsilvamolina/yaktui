@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -20,6 +21,8 @@ type StatefulSetsModel struct {
 	width             int
 	height            int
 	loading           bool
+	filterQuery       string
+	filteredCount     int
 	allNSCache        []appsv1.StatefulSet
 	singleNSCache     []appsv1.StatefulSet
 	cacheNS           string
@@ -126,8 +129,14 @@ func (m *StatefulSetsModel) View() string {
 	return m.table.View()
 }
 
+// SetFilter sets the name filter and re-renders the table
+func (m *StatefulSetsModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
 func (m *StatefulSetsModel) Count() int {
-	return len(m.statefulsets)
+	return m.filteredCount
 }
 
 func (m *StatefulSetsModel) Refresh() tea.Cmd {
@@ -180,21 +189,26 @@ func (m *StatefulSetsModel) fetchStatefulSetsAllNS() tea.Msg {
 }
 
 func (m *StatefulSetsModel) updateTable() {
-	rows := make([]table.Row, len(m.statefulsets))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, ss := range m.statefulsets {
+	for _, ss := range m.statefulsets {
+		if q != "" && !strings.Contains(strings.ToLower(ss.Name), q) {
+			continue
+		}
 		var replicas int32 = 0
 		if ss.Spec.Replicas != nil {
 			replicas = *ss.Spec.Replicas
 		}
-		rows[i] = table.Row{
+		rows = append(rows, table.Row{
 			ss.Namespace,
 			ss.Name,
 			fmt.Sprintf("%d/%d", ss.Status.ReadyReplicas, replicas),
 			formatAge(ss.CreationTimestamp.Time),
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 

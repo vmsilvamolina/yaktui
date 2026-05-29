@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -20,6 +21,8 @@ type DaemonSetsModel struct {
 	width             int
 	height            int
 	loading           bool
+	filterQuery       string
+	filteredCount     int
 	allNSCache        []appsv1.DaemonSet
 	singleNSCache     []appsv1.DaemonSet
 	cacheNS           string
@@ -130,8 +133,14 @@ func (m *DaemonSetsModel) View() string {
 	return m.table.View()
 }
 
+// SetFilter sets the name filter and re-renders the table
+func (m *DaemonSetsModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
 func (m *DaemonSetsModel) Count() int {
-	return len(m.daemonsets)
+	return m.filteredCount
 }
 
 func (m *DaemonSetsModel) Refresh() tea.Cmd {
@@ -184,19 +193,24 @@ func (m *DaemonSetsModel) fetchDaemonSetsAllNS() tea.Msg {
 }
 
 func (m *DaemonSetsModel) updateTable() {
-	rows := make([]table.Row, len(m.daemonsets))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, ds := range m.daemonsets {
-		rows[i] = table.Row{
+	for _, ds := range m.daemonsets {
+		if q != "" && !strings.Contains(strings.ToLower(ds.Name), q) {
+			continue
+		}
+		rows = append(rows, table.Row{
 			ds.Namespace,
 			ds.Name,
 			fmt.Sprintf("%d", ds.Status.DesiredNumberScheduled),
 			fmt.Sprintf("%d", ds.Status.CurrentNumberScheduled),
 			fmt.Sprintf("%d", ds.Status.NumberReady),
 			formatAge(ds.CreationTimestamp.Time),
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -21,6 +22,8 @@ type ConfigMapsModel struct {
 	width             int
 	height            int
 	loading           bool
+	filterQuery       string
+	filteredCount     int
 	// Cache for both modes
 	configmapsAllNS    []corev1.ConfigMap
 	configmapsSingleNS []corev1.ConfigMap
@@ -152,8 +155,14 @@ func (m *ConfigMapsModel) View() string {
 }
 
 // Count returns the number of configmaps
+// SetFilter sets the name filter and re-renders the table
+func (m *ConfigMapsModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
 func (m *ConfigMapsModel) Count() int {
-	return len(m.configmaps)
+	return m.filteredCount
 }
 
 // GetSelectedConfigMap returns the currently selected configmap
@@ -196,17 +205,22 @@ func (m *ConfigMapsModel) fetchConfigMaps() tea.Msg {
 }
 
 func (m *ConfigMapsModel) updateTable() {
-	rows := make([]table.Row, len(m.configmaps))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, cm := range m.configmaps {
-		rows[i] = table.Row{
+	for _, cm := range m.configmaps {
+		if q != "" && !strings.Contains(strings.ToLower(cm.Name), q) {
+			continue
+		}
+		rows = append(rows, table.Row{
 			cm.Namespace,
 			cm.Name,
 			fmt.Sprintf("%d", len(cm.Data)),
 			formatAge(cm.CreationTimestamp.Time),
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 

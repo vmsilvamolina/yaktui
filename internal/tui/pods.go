@@ -22,6 +22,8 @@ type PodsModel struct {
 	width             int
 	height            int
 	loading           bool
+	filterQuery       string
+	filteredCount     int
 	// Cache for both modes
 	podsAllNS    []corev1.Pod
 	podsSingleNS []corev1.Pod
@@ -230,9 +232,15 @@ func (m *PodsModel) Refresh() tea.Cmd {
 	return m.fetchPods
 }
 
-// Count returns the number of pods
+// SetFilter sets the name filter and re-renders the table
+func (m *PodsModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
+// Count returns the number of displayed pods
 func (m *PodsModel) Count() int {
-	return len(m.pods)
+	return m.filteredCount
 }
 
 // GetSelectedPod returns the currently selected pod
@@ -272,24 +280,28 @@ func (m *PodsModel) fetchPods() tea.Msg {
 }
 
 func (m *PodsModel) updateTable() {
-	rows := make([]table.Row, len(m.pods))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, pod := range m.pods {
+	for _, pod := range m.pods {
+		if q != "" && !strings.Contains(strings.ToLower(pod.Name), q) {
+			continue
+		}
 		ready, total := getPodReadyCount(pod)
 		status := getPodStatus(pod)
 		restarts := getPodRestarts(pod)
 		age := formatAge(pod.CreationTimestamp.Time)
-
-		rows[i] = table.Row{
+		rows = append(rows, table.Row{
 			pod.Namespace,
 			pod.Name,
 			fmt.Sprintf("%d/%d", ready, total),
 			status,
 			fmt.Sprintf("%d", restarts),
 			age,
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 

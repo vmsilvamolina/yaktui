@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -21,6 +22,8 @@ type SecretsModel struct {
 	width             int
 	height            int
 	loading           bool
+	filterQuery       string
+	filteredCount     int
 	// Cache for both modes
 	secretsAllNS    []corev1.Secret
 	secretsSingleNS []corev1.Secret
@@ -154,8 +157,14 @@ func (m *SecretsModel) View() string {
 }
 
 // Count returns the number of secrets
+// SetFilter sets the name filter and re-renders the table
+func (m *SecretsModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
 func (m *SecretsModel) Count() int {
-	return len(m.secrets)
+	return m.filteredCount
 }
 
 // GetSelectedSecret returns the currently selected secret
@@ -198,18 +207,23 @@ func (m *SecretsModel) fetchSecrets() tea.Msg {
 }
 
 func (m *SecretsModel) updateTable() {
-	rows := make([]table.Row, len(m.secrets))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, secret := range m.secrets {
-		rows[i] = table.Row{
+	for _, secret := range m.secrets {
+		if q != "" && !strings.Contains(strings.ToLower(secret.Name), q) {
+			continue
+		}
+		rows = append(rows, table.Row{
 			secret.Namespace,
 			secret.Name,
 			string(secret.Type),
 			fmt.Sprintf("%d", len(secret.Data)),
 			formatAge(secret.CreationTimestamp.Time),
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 

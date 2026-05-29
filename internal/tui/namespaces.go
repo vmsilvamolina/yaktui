@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -13,12 +14,14 @@ import (
 
 // NamespacesModel represents the namespaces view
 type NamespacesModel struct {
-	client     *client.Client
-	table      table.Model
-	namespaces []corev1.Namespace
-	width      int
-	height     int
-	loading    bool
+	client        *client.Client
+	table         table.Model
+	namespaces    []corev1.Namespace
+	width         int
+	height        int
+	loading       bool
+	filterQuery   string
+	filteredCount int
 }
 
 // NewNamespacesModel creates a new namespaces model
@@ -101,8 +104,14 @@ func (m *NamespacesModel) View() string {
 }
 
 // Count returns the number of namespaces
+// SetFilter sets the name filter and re-renders the table
+func (m *NamespacesModel) SetFilter(q string) {
+	m.filterQuery = q
+	m.updateTable()
+}
+
 func (m *NamespacesModel) Count() int {
-	return len(m.namespaces)
+	return m.filteredCount
 }
 
 // Refresh fetches fresh data
@@ -146,16 +155,21 @@ func (m *NamespacesModel) fetchNamespaces() tea.Msg {
 }
 
 func (m *NamespacesModel) updateTable() {
-	rows := make([]table.Row, len(m.namespaces))
+	q := strings.ToLower(m.filterQuery)
+	var rows []table.Row
 
-	for i, ns := range m.namespaces {
-		rows[i] = table.Row{
+	for _, ns := range m.namespaces {
+		if q != "" && !strings.Contains(strings.ToLower(ns.Name), q) {
+			continue
+		}
+		rows = append(rows, table.Row{
 			ns.Name,
 			string(ns.Status.Phase),
 			formatAge(ns.CreationTimestamp.Time),
-		}
+		})
 	}
 
+	m.filteredCount = len(rows)
 	m.table.SetRows(rows)
 }
 
