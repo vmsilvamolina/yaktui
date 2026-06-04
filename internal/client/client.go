@@ -278,3 +278,21 @@ func (c *Client) ListAllDaemonSets(ctx context.Context) ([]appsv1.DaemonSet, err
 	}
 	return list.Items, nil
 }
+
+// ListEvents returns events in the current namespace
+func (c *Client) ListEvents(ctx context.Context) ([]corev1.Event, error) {
+	list, err := c.clientset.CoreV1().Events(c.namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// ListAllEvents returns events in all namespaces
+func (c *Client) ListAllEvents(ctx context.Context) ([]corev1.Event, error) {
+	list, err := c.clientset.CoreV1().Events("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
