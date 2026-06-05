@@ -12,11 +12,19 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// ClusterInfo holds metadata about the connected cluster
+type ClusterInfo struct {
+	Context   string
+	Cluster   string
+	Version   string
+}
+
 // Client wraps the Kubernetes clientset
 type Client struct {
-	clientset  *kubernetes.Clientset
-	namespace  string
-	kubeconfig string
+	clientset   *kubernetes.Clientset
+	namespace   string
+	kubeconfig  string
+	clusterInfo ClusterInfo
 }
 
 // New creates a new Kubernetes client
@@ -35,11 +43,39 @@ func New(kubeconfig, namespace string) (*Client, error) {
 		namespace = "default"
 	}
 
+	info := ClusterInfo{}
+	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}
+	rawConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		loadingRules, &clientcmd.ConfigOverrides{},
+	).RawConfig()
+	if err == nil {
+		info.Context = rawConfig.CurrentContext
+		if ctx, ok := rawConfig.Contexts[rawConfig.CurrentContext]; ok && ctx != nil {
+			info.Cluster = ctx.Cluster
+		}
+	}
+
 	return &Client{
-		clientset:  clientset,
-		namespace:  namespace,
-		kubeconfig: kubeconfig,
+		clientset:   clientset,
+		namespace:   namespace,
+		kubeconfig:  kubeconfig,
+		clusterInfo: info,
 	}, nil
+}
+
+// GetClusterInfo returns cached context/cluster info
+func (c *Client) GetClusterInfo() ClusterInfo {
+	return c.clusterInfo
+}
+
+// FetchServerVersion queries the API server version and caches it
+func (c *Client) FetchServerVersion(ctx context.Context) (string, error) {
+	sv, err := c.clientset.Discovery().ServerVersion()
+	if err != nil {
+		return "", err
+	}
+	c.clusterInfo.Version = sv.GitVersion
+	return sv.GitVersion, nil
 }
 
 // ExecCmd returns a command to open an interactive shell in a pod container.
