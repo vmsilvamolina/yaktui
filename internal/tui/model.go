@@ -94,6 +94,7 @@ type Model struct {
 	connectionState ConnectionState
 	connectionError error
 	kubeconfig      string
+	clusterInfo     client.ClusterInfo
 
 	// Panels
 	focusedPanel Panel
@@ -189,6 +190,16 @@ func (m Model) checkConnection() tea.Msg {
 		return ConnectionResultMsg{Connected: false, Err: err}
 	}
 	return ConnectionResultMsg{Connected: true}
+}
+
+func (m Model) fetchServerVersion() tea.Msg {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	version, err := m.client.FetchServerVersion(ctx)
+	if err != nil {
+		return ClusterInfoMsg{}
+	}
+	return ClusterInfoMsg{Version: version}
 }
 
 // loadAllResources loads all resources after successful connection
@@ -360,12 +371,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ConnectionResultMsg:
 		if msg.Connected {
 			m.connectionState = Connected
-			return m, tea.Batch(m.loadAllResources(), tickCmd())
+			m.clusterInfo = m.client.GetClusterInfo()
+			return m, tea.Batch(m.loadAllResources(), tickCmd(), m.fetchServerVersion)
 		} else {
 			m.connectionState = ConnectionFailed
 			m.connectionError = msg.Err
 			return m, nil
 		}
+
+	case ClusterInfoMsg:
+		m.clusterInfo.Version = msg.Version
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -889,7 +905,7 @@ func (m Model) View() string {
 	// Header with padding
 	header := lipgloss.NewStyle().
 		Padding(1, 0).
-		Render(LogoStyle.Render("  YAKTUI - Yet Another Kubernetes TUI"))
+		Render(m.renderHeader())
 
 	// Show connection status if not connected
 	if m.connectionState == Connecting {
@@ -922,6 +938,61 @@ func (m Model) View() string {
 		paddedContent,
 		status,
 	)
+}
+
+func (m Model) renderHeader() string {
+	logo := LogoStyle.Render("  YAKTUI")
+
+	if m.connectionState != Connected {
+		return logo + lipgloss.NewStyle().Foreground(ColorMuted).Render(" - Yet Another Kubernetes TUI")
+	}
+
+	sep := lipgloss.NewStyle().Foreground(ColorBorder).Render("  │  ")
+	labelStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+	valueStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+	warnStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
+
+	ctxVal := m.clusterInfo.Context
+	if ctxVal == "" {
+		ctxVal = "—"
+	}
+	clusterVal := m.clusterInfo.Cluster
+	if clusterVal == "" {
+		clusterVal = "—"
+	}
+	nsVal := m.client.Namespace()
+	versionVal := m.clusterInfo.Version
+	if versionVal == "" {
+		versionVal = "…"
+	}
+
+	nsStyle := valueStyle
+	if m.showAllNamespaces {
+		nsStyle = warnStyle
+		nsVal = "all"
+	}
+
+	info := labelStyle.Render("ctx ") + valueStyle.Render(ctxVal) +
+		sep +
+		labelStyle.Render("cluster ") + valueStyle.Render(clusterVal) +
+		sep +
+		labelStyle.Render("ns ") + nsStyle.Render(nsVal) +
+		sep +
+		labelStyle.Render("k8s ") + valueStyle.Render(versionVal)
+
+	logoWidth := lipgloss.Width(logo)
+	infoWidth := lipgloss.Width(info)
+	totalWidth := m.width - 2
+	gap := totalWidth - logoWidth - infoWidth
+	if gap < 1 {
+		gap = 1
+	}
+	padding := ""
+	for i := 0; i < gap; i++ {
+		padding += " "
+	}
+
+	return logo + padding + info
 }
 
 func (m Model) renderSidebar() string {
@@ -1156,4 +1227,7 @@ type ExecFinishedMsg struct{ Err error }
 type DeletePodResultMsg struct {
 	Name string
 	Err  error
+}
+type ClusterInfoMsg struct {
+	Version string
 }
