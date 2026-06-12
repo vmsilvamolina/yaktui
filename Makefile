@@ -50,6 +50,10 @@ fmt:
 lint:
 	golangci-lint run
 
+# Build snapshot release locally (requires goreleaser)
+snapshot:
+	goreleaser release --snapshot --clean
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -60,6 +64,7 @@ help:
 	@echo "  test     - Run tests"
 	@echo "  install  - Install to GOPATH/bin"
 	@echo "  release  - Build for multiple platforms"
+	@echo "  snapshot - Build snapshot release locally (goreleaser)"
 	@echo "  fmt      - Format code"
 	@echo "  lint     - Lint code"
 

@@ -1,42 +1,45 @@
 # YAKTUI
 
-Yet Another Kubernetes TUI - A minimal terminal UI for Kubernetes, inspired by [k9s](https://github.com/derailed/k9s).
+Yet Another Kubernetes TUI — a minimal terminal UI for Kubernetes, inspired by [k9s](https://github.com/derailed/k9s).
 
-Built with [Bubbletea](https://github.com/charmbracelet/bubbletea) 🧋
-
-```
-  YAKTUI - Yet Another Kubernetes TUI
-```
+Built with [Bubbletea](https://github.com/charmbracelet/bubbletea).
 
 ## Features
 
-- 📋 **Multiple Resources** - View Pods, Deployments, Services, ConfigMaps, Secrets, Namespaces
-- 🔗 **Pod Relations** - Visualize pod relationships with Deployments, ReplicaSets, Services
-- 📜 **Stream Logs** - Watch container logs in real-time with follow mode
-- 🏷️ **Namespace Navigation** - Switch between namespaces easily
-- ⌨️ **Vim-like Navigation** - Use j/k for navigation
-- 🎨 **Modern UI** - Built with Lip Gloss for beautiful styling
+- **Multiple resources** — Pods, Deployments, StatefulSets, DaemonSets, Services, ConfigMaps, Secrets, Namespaces, Nodes, Events
+- **Cluster info bar** — current context, cluster, namespace, and k8s version always visible
+- **Pod relations** — visualize relationships with Deployments, ReplicaSets, and Services
+- **Log streaming** — real-time logs with follow mode
+- **Pod shell exec** — open an interactive shell inside any container
+- **YAML describe** — full YAML view for any resource (secrets redacted)
+- **Search / filter** — press `/` to filter by name in any resource list
+- **Namespace toggle** — switch between current and all namespaces instantly
+- **Delete with confirmation** — modal confirmation before deleting pods
+- **Auto-refresh** — active resource refreshes every 30 seconds
+- **Vim navigation** — `hjkl` throughout
 
 ## Installation
 
-### From Source
+### Homebrew (recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/vmsilvamolina/yaktui.git
-cd yaktui
-
-# Build
-make build
-
-# Run
-./bin/yaktui
+brew tap vmsilvamolina/yaktui
+brew install yaktui
 ```
 
-### Go Install
+### Go install
 
 ```bash
 go install github.com/vmsilvamolina/yaktui@latest
+```
+
+### From source
+
+```bash
+git clone https://github.com/vmsilvamolina/yaktui.git
+cd yaktui
+make build
+./bin/yaktui
 ```
 
 ## Usage
@@ -45,10 +48,10 @@ go install github.com/vmsilvamolina/yaktui@latest
 # Start with default kubeconfig (~/.kube/config)
 yaktui
 
-# Use specific kubeconfig
+# Use a specific kubeconfig
 yaktui --kubeconfig /path/to/kubeconfig
 
-# Start in specific namespace
+# Start in a specific namespace
 yaktui -n kube-system
 
 # Show version
@@ -61,86 +64,72 @@ yaktui version
 
 | Key | Action |
 |-----|--------|
-| `tab` | Switch between sidebar and content |
-| `ctrl+c` | Quit |
+| `tab` | Switch between sidebar and content panel |
 | `a` | Toggle all namespaces |
+| `/` | Search / filter by name |
+| `ctrl+c` | Quit |
 
 ### Navigation
 
 | Key | Action |
 |-----|--------|
-| `↑/k` | Move up |
-| `↓/j` | Move down |
-| `←/h` | Move left / Go to sidebar |
-| `→/l` | Move right / Select resource |
-| `enter` | Select / View relations (pods) |
-| `esc` | Go back |
+| `↑` / `k` | Move up |
+| `↓` / `j` | Move down |
+| `←` / `h` / `esc` | Go back / focus sidebar |
+| `→` / `l` / `enter` | Select / enter resource |
 
-### Pods View
+### List view (any resource)
+
+| Key | Action |
+|-----|--------|
+| `d` | YAML describe |
+| `a` | Toggle all namespaces |
+| `/` | Search (type to filter, `esc` to clear) |
+
+### Pods
 
 | Key | Action |
 |-----|--------|
 | `enter` | View pod relations |
-| `l` | View logs |
-| `a` | Toggle all namespaces |
+| `l` | Stream logs |
+| `s` | Open shell in container |
+| `d` | YAML describe |
+| `del` / `backspace` | Delete pod (with confirmation) |
 
-### Logs View
+### Logs
 
 | Key | Action |
 |-----|--------|
-| `esc` | Go back |
-| `g` | Scroll to top |
-| `G` | Scroll to bottom |
 | `f` | Toggle follow mode |
+| `g` / `G` | Scroll to top / bottom |
+| `esc` | Go back |
 
-### Relations View
+### YAML view
 
 | Key | Action |
 |-----|--------|
-| `↑/↓` | Navigate resources |
-| `enter/l` | View logs (when pod selected) |
+| `↑↓` / `jk` | Scroll |
+| `g` / `G` | Top / bottom |
 | `esc` | Go back |
 
-## Project Structure
+### Namespaces
 
-```
-yaktui/
-├── cmd/
-│   └── root.go              # CLI commands
-├── internal/
-│   ├── client/
-│   │   └── client.go        # Kubernetes client wrapper
-│   └── tui/
-│       ├── model.go         # Main Bubbletea model
-│       ├── styles.go        # Lip Gloss styles
-│       ├── keys.go          # Key bindings
-│       ├── pods.go          # Pods view
-│       ├── deployments.go   # Deployments view
-│       ├── services.go      # Services view
-│       ├── configmaps.go    # ConfigMaps view
-│       ├── secrets.go       # Secrets view
-│       ├── namespaces.go    # Namespaces view
-│       ├── relations.go     # Pod relations view
-│       └── logs.go          # Logs view
-├── main.go
-├── go.mod
-├── Makefile
-└── README.md
-```
+| Key | Action |
+|-----|--------|
+| `enter` | Switch to selected namespace |
 
 ## Requirements
 
-- Go 1.21+
-- Access to a Kubernetes cluster
-- Valid kubeconfig
+- A running Kubernetes cluster
+- A valid kubeconfig (`~/.kube/config` by default)
 
-## Tech Stack
+## Tech stack
 
-- [Bubbletea](https://github.com/charmbracelet/bubbletea) - TUI framework
-- [Bubbles](https://github.com/charmbracelet/bubbles) - TUI components
-- [Lip Gloss](https://github.com/charmbracelet/lipgloss) - Styling
-- [client-go](https://github.com/kubernetes/client-go) - Kubernetes client
+- [Bubbletea](https://github.com/charmbracelet/bubbletea) — TUI framework
+- [Bubbles](https://github.com/charmbracelet/bubbles) — TUI components
+- [Lip Gloss](https://github.com/charmbracelet/lipgloss) — styling
+- [client-go](https://github.com/kubernetes/client-go) — Kubernetes client
 
 ## License
 
-MIT License
+MIT
