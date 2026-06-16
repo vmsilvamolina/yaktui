@@ -20,6 +20,7 @@ type LogsModel struct {
 	containerName string
 	viewport      viewport.Model
 	logs          string
+	err           error
 	width         int
 	height        int
 	loading       bool
@@ -78,6 +79,11 @@ func (m *LogsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case LogsErrorMsg:
+		m.err = msg.Err
+		m.loading = false
+		return m, nil
+
 	case LogsMsg:
 		m.logs = msg.Logs
 		m.loading = false
@@ -130,6 +136,11 @@ func (m *LogsModel) View() string {
 
 	header := followIndicator + " " + scrollInfo + "\n"
 
+	if m.err != nil {
+		errText := lipgloss.NewStyle().Foreground(ColorError).Render("✗ " + m.err.Error())
+		return header + errText
+	}
+
 	return header + m.viewport.View()
 }
 
@@ -145,7 +156,7 @@ func (m *LogsModel) fetchLogs() tea.Msg {
 	m.client.SetNamespace(m.pod.Namespace)
 	logs, err := m.client.GetPodLogs(ctx, m.pod.Name, m.containerName, 500)
 	if err != nil {
-		return ErrorMsg{Err: err}
+		return LogsErrorMsg{Err: err}
 	}
 
 	return LogsMsg{Logs: logs}
@@ -188,3 +199,5 @@ type LogsMsg struct {
 }
 
 type LogsTickMsg struct{}
+
+type LogsErrorMsg struct{ Err error }

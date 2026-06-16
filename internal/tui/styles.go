@@ -85,8 +85,7 @@ var (
 	// Status bar style
 	StatusBarStyle = lipgloss.NewStyle().
 			Foreground(ColorSubtle).
-			Background(lipgloss.Color("#1a1a1a")).
-			Padding(0, 1)
+			Padding(0, 1, 1, 2)
 
 	StatusKeyStyle = lipgloss.NewStyle().
 			Foreground(ColorAccent).
@@ -94,6 +93,8 @@ var (
 
 	StatusDescStyle = lipgloss.NewStyle().
 			Foreground(ColorText)
+
+	StatusSepStyle = lipgloss.NewStyle()
 
 	// Status indicators
 	StatusOKStyle = lipgloss.NewStyle().

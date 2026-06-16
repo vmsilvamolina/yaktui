@@ -32,6 +32,7 @@ type EventsModel struct {
 func eventTableStylesNormal() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
+		MarginTop(1).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(ColorBorder).
 		BorderBottom(true).
@@ -47,6 +48,7 @@ func eventTableStylesNormal() table.Styles {
 func eventTableStylesWarning() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
+		MarginTop(1).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(ColorBorder).
 		BorderBottom(true).

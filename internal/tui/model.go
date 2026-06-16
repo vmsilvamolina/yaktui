@@ -487,7 +487,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key.Matches(msg, m.keys.Logs) || key.Matches(msg, m.keys.Enter) {
 				if pod := m.relationsView.GetSelectedPod(); pod != nil {
 					m.logsView = NewLogsModel(m.client, pod)
-					m.logsView.SetSize(m.width-27, m.height-6)
+					m.logsView.SetSize(m.width-27, m.height-7)
 					m.currentView = ViewLogs
 					return m, m.logsView.Init()
 				}
@@ -535,7 +535,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update all view sizes (account for sidebar + borders + horizontal margins)
 		contentWidth := m.width - 27
-		contentHeight := m.height - 6
+		contentHeight := m.height - 7
 
 		if m.podsView != nil {
 			m.podsView.SetSize(contentWidth, contentHeight)
@@ -588,7 +588,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case LogsMsg, LogsTickMsg:
+	case LogsMsg, LogsTickMsg, LogsErrorMsg:
 		// Forward to logs view
 		if m.logsView != nil {
 			newView, cmd := m.logsView.Update(msg)
@@ -662,7 +662,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.daemonSetsView = NewDaemonSetsModel(m.client)
 		m.eventsView = NewEventsModel(m.client)
 		contentWidth := m.width - 27
-		contentHeight := m.height - 6
+		contentHeight := m.height - 7
 		m.podsView.SetSize(contentWidth, contentHeight)
 		m.deploymentsView.SetSize(contentWidth, contentHeight)
 		m.servicesView.SetSize(contentWidth, contentHeight)
@@ -807,55 +807,55 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case ResourcePods:
 			if pod := m.podsView.GetSelectedPod(); pod != nil {
 				m.describeView = NewDescribeModel(pod.Name, pod)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		case ResourceDeployments:
 			if dep := m.deploymentsView.GetSelectedDeployment(); dep != nil {
 				m.describeView = NewDescribeModel(dep.Name, dep)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		case ResourceServices:
 			if svc := m.servicesView.GetSelectedService(); svc != nil {
 				m.describeView = NewDescribeModel(svc.Name, svc)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		case ResourceConfigMaps:
 			if cm := m.configmapsView.GetSelectedConfigMap(); cm != nil {
 				m.describeView = NewDescribeModel(cm.Name, cm)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		case ResourceSecrets:
 			if secret := m.secretsView.GetSelectedSecret(); secret != nil {
 				m.describeView = NewDescribeModelForSecret(secret.Name, secret)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		case ResourceNamespaces:
 			if ns := m.namespacesView.GetSelectedNamespaceObj(); ns != nil {
 				m.describeView = NewDescribeModel(ns.Name, ns)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		case ResourceNodes:
 			if node := m.nodesView.GetSelectedNode(); node != nil {
 				m.describeView = NewDescribeModel(node.Name, node)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		case ResourceStatefulSets:
 			if ss := m.statefulSetsView.GetSelectedStatefulSet(); ss != nil {
 				m.describeView = NewDescribeModel(ss.Name, ss)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		case ResourceDaemonSets:
 			if ds := m.daemonSetsView.GetSelectedDaemonSet(); ds != nil {
 				m.describeView = NewDescribeModel(ds.Name, ds)
-				m.describeView.SetSize(m.width-27, m.height-6)
+				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
 		}
@@ -868,7 +868,7 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key.Matches(msg, m.keys.Enter) {
 			if pod := m.podsView.GetSelectedPod(); pod != nil {
 				m.relationsView = NewRelationsModel(m.client, pod)
-				m.relationsView.SetSize(m.width-27, m.height-6)
+				m.relationsView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewRelations
 				return m, m.relationsView.Init()
 			}
@@ -876,7 +876,7 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key.Matches(msg, m.keys.Logs) {
 			if pod := m.podsView.GetSelectedPod(); pod != nil {
 				m.logsView = NewLogsModel(m.client, pod)
-				m.logsView.SetSize(m.width-27, m.height-6)
+				m.logsView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewLogs
 				return m, m.logsView.Init()
 			}
@@ -1217,23 +1217,13 @@ func (m Model) renderSidebar() string {
 		items += style.Render(prefix+item.String()) + "\n"
 	}
 
-	sidebarStyle := SidebarStyle
-	if m.focusedPanel == SidebarPanel {
-		sidebarStyle = SidebarFocusedStyle
-	}
-
-	title := TitleStyle.Render("Resources")
-	sidebar := title + "\n" + items
-
-	sidebarHeight := m.height - 6
+	sidebarHeight := m.height - 5
 	if sidebarHeight < 5 {
 		sidebarHeight = 5
 	}
 
-	return sidebarStyle.
-		Width(20).
-		Height(sidebarHeight).
-		Render(sidebar)
+	focused := m.focusedPanel == SidebarPanel
+	return RenderPanelWithTitle("Resources", items, 22, sidebarHeight, focused)
 }
 
 func (m Model) renderContent() string {
@@ -1248,7 +1238,7 @@ func (m Model) renderContent() string {
 		if contentWidth < 20 {
 			contentWidth = 20
 		}
-		contentHeight := m.height - 4
+		contentHeight := m.height - 5
 		if contentHeight < 5 {
 			contentHeight = 5
 		}
@@ -1325,7 +1315,7 @@ func (m Model) renderContent() string {
 	}
 
 	// Account for header (3 with padding) + status bar (1) + borders
-	contentHeight := m.height - 4
+	contentHeight := m.height - 5
 	if contentHeight < 5 {
 		contentHeight = 5
 	}
@@ -1337,7 +1327,7 @@ func (m Model) renderContent() string {
 func (m Model) renderConnectingView(header string) string {
 	content := lipgloss.NewStyle().
 		Width(m.width - 4).
-		Height(m.height - 6).
+		Height(m.height - 7).
 		Align(lipgloss.Center).
 		AlignVertical(lipgloss.Center).
 		Render(
@@ -1365,7 +1355,7 @@ func (m Model) renderConnectionErrorView(header string) string {
 
 	content := lipgloss.NewStyle().
 		Width(m.width - 4).
-		Height(m.height - 6).
+		Height(m.height - 7).
 		Padding(2).
 		Render(errorMsg)
 
@@ -1374,87 +1364,88 @@ func (m Model) renderConnectionErrorView(header string) string {
 
 func (m Model) renderStatusBar() string {
 	var help string
+	sep := StatusSepStyle.Render("  ")
 
 	if m.confirmDelete {
-		warning := lipgloss.NewStyle().Foreground(ColorError).Bold(true).Render("Delete pod")
-		name := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true).Render(m.confirmDeleteTarget)
+		warning := lipgloss.NewStyle().Foreground(ColorError).Background(lipgloss.Color("#1a1a1a")).Bold(true).Render("Delete pod")
+		name := lipgloss.NewStyle().Foreground(ColorWarning).Background(lipgloss.Color("#1a1a1a")).Bold(true).Render(m.confirmDeleteTarget)
 		confirm := StatusKeyStyle.Render("y") + StatusDescStyle.Render(" confirm")
 		cancel := StatusKeyStyle.Render("n/esc") + StatusDescStyle.Render(" cancel")
-		help = warning + " " + name + "?   " + confirm + "   " + cancel
+		help = warning + StatusSepStyle.Render(" ") + name + StatusSepStyle.Render("?   ") + confirm + StatusSepStyle.Render("   ") + cancel
 		return StatusBarStyle.Width(m.width).Render(help)
 	}
 
 	if m.commandMode {
-		cursor := lipgloss.NewStyle().Foreground(ColorAccent).Render("█")
-		prompt := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render(":")
+		cursor := lipgloss.NewStyle().Foreground(ColorAccent).Background(lipgloss.Color("#1a1a1a")).Render("█")
+		prompt := lipgloss.NewStyle().Foreground(ColorPrimary).Background(lipgloss.Color("#1a1a1a")).Bold(true).Render(":")
 		matchStr := ""
 		for _, match := range m.commandMatches {
-			matchStr += "  " + lipgloss.NewStyle().Foreground(ColorPrimary).Render("["+match.label+"]")
+			matchStr += sep + lipgloss.NewStyle().Foreground(ColorPrimary).Background(lipgloss.Color("#1a1a1a")).Render("["+match.label+"]")
 		}
-		help = prompt + " " + m.commandInput + cursor + matchStr + "   " +
-			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" navigate") + "  " +
+		help = prompt + StatusSepStyle.Render(" ") + StatusSepStyle.Render(m.commandInput) + cursor + matchStr + StatusSepStyle.Render("   ") +
+			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" navigate") + sep +
 			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" cancel")
 		return StatusBarStyle.Width(m.width).Render(help)
 	}
 
 	if m.contextMode {
-		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" navigate") + "  " +
-			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" switch") + "  " +
+		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" navigate") + sep +
+			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" switch") + sep +
 			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" cancel")
 		return StatusBarStyle.Width(m.width).Render(help)
 	}
 
 	if m.filterMode {
-		cursor := lipgloss.NewStyle().Foreground(ColorAccent).Render("█")
-		prompt := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render("/")
-		help = prompt + " " + m.filterQuery + cursor + "   " +
-			StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" navigate") + "  " +
-			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" confirm") + "  " +
+		cursor := lipgloss.NewStyle().Foreground(ColorAccent).Background(lipgloss.Color("#1a1a1a")).Render("█")
+		prompt := lipgloss.NewStyle().Foreground(ColorPrimary).Background(lipgloss.Color("#1a1a1a")).Bold(true).Render("/")
+		help = prompt + StatusSepStyle.Render(" ") + StatusSepStyle.Render(m.filterQuery) + cursor + StatusSepStyle.Render("   ") +
+			StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" navigate") + sep +
+			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" confirm") + sep +
 			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" clear")
 		return StatusBarStyle.Width(m.width).Render(help)
 	}
 
 	switch m.currentView {
 	case ViewDescribe:
-		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" scroll") + "  " +
-			StatusKeyStyle.Render("g/G") + StatusDescStyle.Render(" top/bottom") + "  " +
-			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + "  " +
+		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" scroll") + sep +
+			StatusKeyStyle.Render("g/G") + StatusDescStyle.Render(" top/bottom") + sep +
+			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + sep +
 			StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 	case ViewLogs:
-		help = StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + "  " +
+		help = StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + sep +
 			StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 	case ViewRelations:
-		help = StatusKeyStyle.Render("↑↓") + StatusDescStyle.Render(" navigate") + "  " +
-			StatusKeyStyle.Render("enter/l") + StatusDescStyle.Render(" logs") + "  " +
-			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + "  " +
+		help = StatusKeyStyle.Render("↑↓") + StatusDescStyle.Render(" navigate") + sep +
+			StatusKeyStyle.Render("enter/l") + StatusDescStyle.Render(" logs") + sep +
+			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + sep +
 			StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 	default:
 		if m.currentResource == ResourcePods {
-			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + "  " +
-				StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" relations") + "  " +
-				StatusKeyStyle.Render("l") + StatusDescStyle.Render(" logs") + "  " +
-				StatusKeyStyle.Render("s") + StatusDescStyle.Render(" shell") + "  " +
-				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + "  " +
-				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
-				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + "  " +
-				StatusKeyStyle.Render(":") + StatusDescStyle.Render(" cmd") + "  " +
-				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + "  " +
-				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + "  " +
+			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + sep +
+				StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" relations") + sep +
+				StatusKeyStyle.Render("l") + StatusDescStyle.Render(" logs") + sep +
+				StatusKeyStyle.Render("s") + StatusDescStyle.Render(" shell") + sep +
+				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + sep +
+				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + sep +
+				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + sep +
+				StatusKeyStyle.Render(":") + StatusDescStyle.Render(" cmd") + sep +
+				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + sep +
+				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + sep +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		} else {
-			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + "  " +
-				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + "  " +
-				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
-				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + "  " +
-				StatusKeyStyle.Render(":") + StatusDescStyle.Render(" cmd") + "  " +
-				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + "  " +
-				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + "  " +
+			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + sep +
+				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + sep +
+				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + sep +
+				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + sep +
+				StatusKeyStyle.Render(":") + StatusDescStyle.Render(" cmd") + sep +
+				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + sep +
+				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + sep +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		}
 	}
 
 	if m.statusMessage != "" {
-		help = m.statusMessage + "  |  " + help
+		help = StatusSepStyle.Render(m.statusMessage) + StatusSepStyle.Render("  |  ") + help
 	}
 
 	return StatusBarStyle.Width(m.width).Render(help)

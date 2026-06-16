@@ -34,6 +34,7 @@ type PodsModel struct {
 func podTableStylesNormal() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
+		MarginTop(1).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(ColorBorder).
 		BorderBottom(true).
@@ -49,6 +50,7 @@ func podTableStylesNormal() table.Styles {
 func podTableStylesWarning() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
+		MarginTop(1).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(ColorBorder).
 		BorderBottom(true).
@@ -64,6 +66,7 @@ func podTableStylesWarning() table.Styles {
 func podTableStylesError() table.Styles {
 	s := table.DefaultStyles()
 	s.Header = s.Header.
+		MarginTop(1).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(ColorBorder).
 		BorderBottom(true).
