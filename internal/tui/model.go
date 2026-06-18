@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -136,9 +137,76 @@ type Model struct {
 	filterMode  bool
 	filterQuery string
 
+	// Command palette
+	commandMode    bool
+	commandInput   string
+	commandMatches []commandMatch
+
+	// Context switch
+	contextMode     bool
+	contexts        []string
+	contextCurrent  string
+	contextSelected int
+
+	// Help overlay
+	showHelp bool
+
 	// Status
 	statusMessage string
 	err           error
+}
+
+type commandMatch struct {
+	label    string
+	resource ResourceType
+}
+
+var paletteAliases = []struct {
+	alias    string
+	resource ResourceType
+}{
+	{"pod", ResourcePods},
+	{"pods", ResourcePods},
+	{"deploy", ResourceDeployments},
+	{"deployment", ResourceDeployments},
+	{"deployments", ResourceDeployments},
+	{"svc", ResourceServices},
+	{"service", ResourceServices},
+	{"services", ResourceServices},
+	{"cm", ResourceConfigMaps},
+	{"configmap", ResourceConfigMaps},
+	{"configmaps", ResourceConfigMaps},
+	{"secret", ResourceSecrets},
+	{"secrets", ResourceSecrets},
+	{"ns", ResourceNamespaces},
+	{"namespace", ResourceNamespaces},
+	{"namespaces", ResourceNamespaces},
+	{"node", ResourceNodes},
+	{"nodes", ResourceNodes},
+	{"sts", ResourceStatefulSets},
+	{"statefulset", ResourceStatefulSets},
+	{"statefulsets", ResourceStatefulSets},
+	{"ds", ResourceDaemonSets},
+	{"daemonset", ResourceDaemonSets},
+	{"daemonsets", ResourceDaemonSets},
+	{"event", ResourceEvents},
+	{"events", ResourceEvents},
+}
+
+func matchPalette(input string) []commandMatch {
+	if input == "" {
+		return nil
+	}
+	lower := strings.ToLower(input)
+	seen := map[ResourceType]bool{}
+	var matches []commandMatch
+	for _, a := range paletteAliases {
+		if strings.HasPrefix(a.alias, lower) && !seen[a.resource] {
+			seen[a.resource] = true
+			matches = append(matches, commandMatch{label: a.resource.String(), resource: a.resource})
+		}
+	}
+	return matches
 }
 
 // NewModel creates a new application model
@@ -276,6 +344,78 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Help overlay — ? toggles, esc closes, ctrl+c still quits
+		if key.Matches(msg, m.keys.Help) {
+			m.showHelp = !m.showHelp
+			return m, nil
+		}
+		if m.showHelp {
+			if key.Matches(msg, m.keys.Back) {
+				m.showHelp = false
+			} else if key.Matches(msg, m.keys.Quit) {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		// Command palette intercepts input
+		if m.commandMode {
+			switch msg.String() {
+			case "esc":
+				m.commandMode = false
+				m.commandInput = ""
+				m.commandMatches = nil
+			case "enter":
+				if len(m.commandMatches) > 0 {
+					resource := m.commandMatches[0].resource
+					m.commandMode = false
+					m.commandInput = ""
+					m.commandMatches = nil
+					return m.navigateToResource(resource)
+				}
+				m.commandMode = false
+				m.commandInput = ""
+				m.commandMatches = nil
+			case "backspace", "ctrl+h":
+				if len(m.commandInput) > 0 {
+					runes := []rune(m.commandInput)
+					m.commandInput = string(runes[:len(runes)-1])
+					m.commandMatches = matchPalette(m.commandInput)
+				}
+			default:
+				if len(msg.Runes) > 0 {
+					m.commandInput += string(msg.Runes)
+					m.commandMatches = matchPalette(m.commandInput)
+				}
+			}
+			return m, nil
+		}
+
+		// Context switch modal intercepts navigation
+		if m.contextMode {
+			switch {
+			case key.Matches(msg, m.keys.Quit):
+				return m, tea.Quit
+			case key.Matches(msg, m.keys.Back):
+				m.contextMode = false
+				m.contexts = nil
+			case key.Matches(msg, m.keys.Up):
+				if m.contextSelected > 0 {
+					m.contextSelected--
+				}
+			case key.Matches(msg, m.keys.Down):
+				if m.contextSelected < len(m.contexts)-1 {
+					m.contextSelected++
+				}
+			case key.Matches(msg, m.keys.Enter):
+				if m.contextSelected < len(m.contexts) {
+					chosen := m.contexts[m.contextSelected]
+					return m, m.switchContext(chosen)
+				}
+			}
+			return m, nil
+		}
+
 		// Global keys
 		if key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
@@ -307,6 +447,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.eventsView.SetShowAllNamespaces(m.showAllNamespaces)
 			// No need to fetch again - SetShowAllNamespaces uses cached data
 			return m, nil
+		}
+
+		// Context switch
+		if key.Matches(msg, m.keys.ContextSwitch) && m.currentView == ViewList {
+			return m, m.fetchContexts
 		}
 
 		// Handle based on current view
@@ -477,6 +622,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.podsView.Refresh()
 		}
 		return m, nil
+
+	case ContextsMsg:
+		if msg.Err != nil {
+			m.statusMessage = "error listing contexts: " + msg.Err.Error()
+			return m, nil
+		}
+		m.contexts = msg.Contexts
+		m.contextCurrent = m.clusterInfo.Context
+		m.contextSelected = 0
+		for i, ctx := range msg.Contexts {
+			if ctx == m.contextCurrent {
+				m.contextSelected = i
+				break
+			}
+		}
+		m.contextMode = true
+		return m, nil
+
+	case ContextSwitchedMsg:
+		if msg.Err != nil {
+			m.contextMode = false
+			m.statusMessage = "context switch failed: " + msg.Err.Error()
+			return m, nil
+		}
+		m.client = msg.NewClient
+		m.clusterInfo = msg.NewClient.GetClusterInfo()
+		m.contextMode = false
+		m.contexts = nil
+		m.showAllNamespaces = false
+		m.podsView = NewPodsModel(m.client)
+		m.deploymentsView = NewDeploymentsModel(m.client)
+		m.servicesView = NewServicesModel(m.client)
+		m.configmapsView = NewConfigMapsModel(m.client)
+		m.secretsView = NewSecretsModel(m.client)
+		m.namespacesView = NewNamespacesModel(m.client)
+		m.nodesView = NewNodesModel(m.client)
+		m.statefulSetsView = NewStatefulSetsModel(m.client)
+		m.daemonSetsView = NewDaemonSetsModel(m.client)
+		m.eventsView = NewEventsModel(m.client)
+		contentWidth := m.width - 27
+		contentHeight := m.height - 6
+		m.podsView.SetSize(contentWidth, contentHeight)
+		m.deploymentsView.SetSize(contentWidth, contentHeight)
+		m.servicesView.SetSize(contentWidth, contentHeight)
+		m.configmapsView.SetSize(contentWidth, contentHeight)
+		m.secretsView.SetSize(contentWidth, contentHeight)
+		m.namespacesView.SetSize(contentWidth, contentHeight)
+		m.nodesView.SetSize(contentWidth, contentHeight)
+		m.statefulSetsView.SetSize(contentWidth, contentHeight)
+		m.daemonSetsView.SetSize(contentWidth, contentHeight)
+		m.eventsView.SetSize(contentWidth, contentHeight)
+		m.statusMessage = "switched to context: " + m.clusterInfo.Context
+		return m, tea.Batch(m.loadAllResources(), m.fetchServerVersion)
 	}
 
 	// Handle resource-specific messages
@@ -578,6 +776,14 @@ func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Enter command palette mode
+	if key.Matches(msg, m.keys.CommandPalette) && m.currentView == ViewList {
+		m.commandMode = true
+		m.commandInput = ""
+		m.commandMatches = nil
+		return m, nil
+	}
+
 	// Enter filter mode
 	if key.Matches(msg, m.keys.Search) && m.currentView == ViewList {
 		m.filterMode = true
@@ -902,6 +1108,10 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
+	if m.showHelp {
+		return m.renderHelpOverlay()
+	}
+
 	// Header with padding
 	header := lipgloss.NewStyle().
 		Padding(1, 0).
@@ -1030,6 +1240,20 @@ func (m Model) renderContent() string {
 	var content string
 	var title string
 	var count int
+
+	if m.contextMode {
+		content = m.renderContextList()
+		title = "Switch Context"
+		contentWidth := m.width - 24
+		if contentWidth < 20 {
+			contentWidth = 20
+		}
+		contentHeight := m.height - 4
+		if contentHeight < 5 {
+			contentHeight = 5
+		}
+		return RenderPanelWithTitle(title, content, contentWidth, contentHeight, true)
+	}
 
 	switch m.currentView {
 	case ViewDescribe:
@@ -1160,6 +1384,26 @@ func (m Model) renderStatusBar() string {
 		return StatusBarStyle.Width(m.width).Render(help)
 	}
 
+	if m.commandMode {
+		cursor := lipgloss.NewStyle().Foreground(ColorAccent).Render("█")
+		prompt := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render(":")
+		matchStr := ""
+		for _, match := range m.commandMatches {
+			matchStr += "  " + lipgloss.NewStyle().Foreground(ColorPrimary).Render("["+match.label+"]")
+		}
+		help = prompt + " " + m.commandInput + cursor + matchStr + "   " +
+			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" navigate") + "  " +
+			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" cancel")
+		return StatusBarStyle.Width(m.width).Render(help)
+	}
+
+	if m.contextMode {
+		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" navigate") + "  " +
+			StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" switch") + "  " +
+			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" cancel")
+		return StatusBarStyle.Width(m.width).Render(help)
+	}
+
 	if m.filterMode {
 		cursor := lipgloss.NewStyle().Foreground(ColorAccent).Render("█")
 		prompt := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render("/")
@@ -1193,12 +1437,18 @@ func (m Model) renderStatusBar() string {
 				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + "  " +
 				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
 				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + "  " +
+				StatusKeyStyle.Render(":") + StatusDescStyle.Render(" cmd") + "  " +
+				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + "  " +
+				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + "  " +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		} else {
 			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + "  " +
 				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + "  " +
 				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + "  " +
 				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + "  " +
+				StatusKeyStyle.Render(":") + StatusDescStyle.Render(" cmd") + "  " +
+				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + "  " +
+				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + "  " +
 				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
 		}
 	}
@@ -1219,6 +1469,102 @@ func (m Model) deletePod(name string) tea.Cmd {
 	}
 }
 
+func (m Model) fetchContexts() tea.Msg {
+	contexts, current, err := client.ListContexts(m.kubeconfig)
+	return ContextsMsg{Contexts: contexts, Current: current, Err: err}
+}
+
+func (m Model) switchContext(contextName string) tea.Cmd {
+	return func() tea.Msg {
+		newClient, err := client.NewWithContext(m.kubeconfig, contextName, "default")
+		return ContextSwitchedMsg{NewClient: newClient, Err: err}
+	}
+}
+
+func (m Model) navigateToResource(resource ResourceType) (tea.Model, tea.Cmd) {
+	for i, r := range m.sidebarItems {
+		if r == resource {
+			m.sidebarSelected = i
+			break
+		}
+	}
+	m.currentResource = resource
+	m.currentView = ViewList
+	m.focusedPanel = ContentPanel
+	m.filterMode = false
+	m.filterQuery = ""
+	return m, m.initCurrentView()
+}
+
+func (m Model) renderContextList() string {
+	var sb strings.Builder
+	checkStyle := lipgloss.NewStyle().Foreground(ColorSuccess)
+	for i, ctx := range m.contexts {
+		style := TableRowStyle
+		prefix := "  "
+		if i == m.contextSelected {
+			style = TableSelectedStyle
+			prefix = "▸ "
+		}
+		marker := ""
+		if ctx == m.contextCurrent {
+			marker = " " + checkStyle.Render("✓")
+		}
+		sb.WriteString(style.Render(prefix+ctx) + marker + "\n")
+	}
+	return sb.String()
+}
+
+func (m Model) renderHelpOverlay() string {
+	keyStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(ColorText)
+	sectionStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+
+	type row struct{ k, d string }
+	sections := []struct {
+		title string
+		rows  []row
+	}{
+		{"Navigation", []row{
+			{"↑/k  ↓/j", "move up / down"},
+			{"←/h  →/l", "move left / right"},
+			{"tab", "switch panel"},
+			{"enter", "select / confirm"},
+			{"esc", "back / cancel"},
+		}},
+		{"Resource actions", []row{
+			{"l", "pod logs"},
+			{"s", "shell (pods)"},
+			{"d", "yaml / describe"},
+			{"enter", "relations (pods)"},
+			{"del", "delete pod"},
+		}},
+		{"Global", []row{
+			{"/", "filter resources"},
+			{":", "command palette"},
+			{"a", "toggle all namespaces"},
+			{"c", "switch context"},
+			{"?", "toggle this help"},
+			{"ctrl+c", "quit"},
+		}},
+	}
+
+	var buf strings.Builder
+	buf.WriteString(LogoStyle.Render("  Key Bindings") + "\n\n")
+	for _, sec := range sections {
+		buf.WriteString(sectionStyle.Render(sec.title) + "\n")
+		for _, r := range sec.rows {
+			kw := lipgloss.NewStyle().Width(14).Render(keyStyle.Render(r.k))
+			buf.WriteString("  " + kw + descStyle.Render(r.d) + "\n")
+		}
+		buf.WriteString("\n")
+	}
+	buf.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("press ? or esc to close"))
+
+	box := DialogStyle.Width(44).Render(buf.String())
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+}
+
 // Message types
 type TickMsg struct{}
 type ErrorMsg struct{ Err error }
@@ -1230,4 +1576,13 @@ type DeletePodResultMsg struct {
 }
 type ClusterInfoMsg struct {
 	Version string
+}
+type ContextsMsg struct {
+	Contexts []string
+	Current  string
+	Err      error
+}
+type ContextSwitchedMsg struct {
+	NewClient *client.Client
+	Err       error
 }

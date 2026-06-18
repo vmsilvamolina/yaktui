@@ -4,21 +4,23 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all key bindings for the application
 type KeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	Left     key.Binding
-	Right    key.Binding
-	Enter    key.Binding
-	Back     key.Binding
-	Tab      key.Binding
-	Logs     key.Binding
-	Shell    key.Binding
-	Describe key.Binding
-	Delete   key.Binding
-	AllNS    key.Binding
-	Search   key.Binding
-	Quit     key.Binding
-	Help     key.Binding
+	Up             key.Binding
+	Down           key.Binding
+	Left           key.Binding
+	Right          key.Binding
+	Enter          key.Binding
+	Back           key.Binding
+	Tab            key.Binding
+	Logs           key.Binding
+	Shell          key.Binding
+	Describe       key.Binding
+	Delete         key.Binding
+	AllNS          key.Binding
+	Search         key.Binding
+	CommandPalette key.Binding
+	ContextSwitch  key.Binding
+	Quit           key.Binding
+	Help           key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings
@@ -75,6 +77,14 @@ var DefaultKeyMap = KeyMap{
 		key.WithKeys("/"),
 		key.WithHelp("/", "search"),
 	),
+	CommandPalette: key.NewBinding(
+		key.WithKeys(":"),
+		key.WithHelp(":", "command palette"),
+	),
+	ContextSwitch: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "switch context"),
+	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c"),
 		key.WithHelp("ctrl+c", "quit"),
@@ -96,6 +106,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.Enter, k.Back, k.Tab},
 		{k.Logs, k.Shell, k.Describe, k.Delete},
-		{k.AllNS, k.Quit, k.Help},
+		{k.AllNS, k.Search, k.CommandPalette},
+		{k.ContextSwitch, k.Quit, k.Help},
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"sort"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -331,4 +332,60 @@ func (c *Client) ListAllEvents(ctx context.Context) ([]corev1.Event, error) {
 		return nil, err
 	}
 	return list.Items, nil
+}
+
+// ListContexts returns sorted context names from the kubeconfig and the active context.
+func ListContexts(kubeconfig string) ([]string, string, error) {
+	rawConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig},
+		&clientcmd.ConfigOverrides{},
+	).RawConfig()
+	if err != nil {
+		return nil, "", err
+	}
+	names := make([]string, 0, len(rawConfig.Contexts))
+	for name := range rawConfig.Contexts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, rawConfig.CurrentContext, nil
+}
+
+// NewWithContext creates a Client using a specific kubeconfig context.
+func NewWithContext(kubeconfig, contextName, namespace string) (*Client, error) {
+	overrides := &clientcmd.ConfigOverrides{CurrentContext: contextName}
+	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig},
+		overrides,
+	).ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	info := ClusterInfo{Context: contextName}
+	rawConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig},
+		overrides,
+	).RawConfig()
+	if err == nil {
+		if ctx, ok := rawConfig.Contexts[contextName]; ok && ctx != nil {
+			info.Cluster = ctx.Cluster
+		}
+	}
+
+	return &Client{
+		clientset:   clientset,
+		namespace:   namespace,
+		kubeconfig:  kubeconfig,
+		clusterInfo: info,
+	}, nil
 }
