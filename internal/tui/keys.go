@@ -86,8 +86,8 @@ var DefaultKeyMap = KeyMap{
 		key.WithHelp("c", "switch context"),
 	),
 	Quit: key.NewBinding(
-		key.WithKeys("ctrl+c"),
-		key.WithHelp("ctrl+c", "quit"),
+		key.WithKeys("ctrl+c", "q"),
+		key.WithHelp("q", "quit"),
 	),
 	Help: key.NewBinding(
 		key.WithKeys("?"),

@@ -457,6 +457,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle based on current view
 		if m.currentView == ViewLogs && m.logsView != nil {
 			if key.Matches(msg, m.keys.Back) {
+				m.logsView.Cancel()
 				m.currentView = ViewList
 				m.logsView = nil
 				return m, nil
@@ -601,10 +602,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newModel, cmd := m.refreshCurrentView()
 		return newModel, tea.Batch(cmd, tickCmd())
 
+	case ClearStatusMsg:
+		m.statusMessage = ""
+		return m, nil
+
 	case ErrorMsg:
 		m.err = msg.Err
 		m.statusMessage = "Error: " + msg.Err.Error()
-		return m, nil
+		return m, clearStatusCmd()
 
 	case ExecFinishedMsg:
 		if msg.Err != nil {
@@ -612,21 +617,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMessage = "exec session ended"
 		}
-		return m, nil
+		return m, clearStatusCmd()
 
 	case DeletePodResultMsg:
 		if msg.Err != nil {
 			m.statusMessage = "error deleting " + msg.Name + ": " + msg.Err.Error()
-		} else {
-			m.statusMessage = "deleted pod: " + msg.Name
-			return m, m.podsView.Refresh()
+			return m, clearStatusCmd()
 		}
-		return m, nil
+		m.statusMessage = "deleted pod: " + msg.Name
+		return m, tea.Batch(m.podsView.Refresh(), clearStatusCmd())
 
 	case ContextsMsg:
 		if msg.Err != nil {
 			m.statusMessage = "error listing contexts: " + msg.Err.Error()
-			return m, nil
+			return m, clearStatusCmd()
 		}
 		m.contexts = msg.Contexts
 		m.contextCurrent = m.clusterInfo.Context
@@ -644,7 +648,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.contextMode = false
 			m.statusMessage = "context switch failed: " + msg.Err.Error()
-			return m, nil
+			return m, clearStatusCmd()
 		}
 		m.client = msg.NewClient
 		m.clusterInfo = msg.NewClient.GetClusterInfo()
@@ -674,7 +678,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.daemonSetsView.SetSize(contentWidth, contentHeight)
 		m.eventsView.SetSize(contentWidth, contentHeight)
 		m.statusMessage = "switched to context: " + m.clusterInfo.Context
-		return m, tea.Batch(m.loadAllResources(), m.fetchServerVersion)
+		return m, tea.Batch(m.loadAllResources(), m.fetchServerVersion, clearStatusCmd())
 	}
 
 	// Handle resource-specific messages
@@ -948,6 +952,7 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.statefulSetsView.Init(),
 					m.daemonSetsView.Init(),
 					m.eventsView.Init(),
+					clearStatusCmd(),
 				)
 			}
 		}
@@ -1410,15 +1415,15 @@ func (m Model) renderStatusBar() string {
 		help = StatusKeyStyle.Render("↑↓/jk") + StatusDescStyle.Render(" scroll") + sep +
 			StatusKeyStyle.Render("g/G") + StatusDescStyle.Render(" top/bottom") + sep +
 			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + sep +
-			StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
+			StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
 	case ViewLogs:
 		help = StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + sep +
-			StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
+			StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
 	case ViewRelations:
 		help = StatusKeyStyle.Render("↑↓") + StatusDescStyle.Render(" navigate") + sep +
 			StatusKeyStyle.Render("enter/l") + StatusDescStyle.Render(" logs") + sep +
 			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + sep +
-			StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
+			StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
 	default:
 		if m.currentResource == ResourcePods {
 			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + sep +
@@ -1431,7 +1436,7 @@ func (m Model) renderStatusBar() string {
 				StatusKeyStyle.Render(":") + StatusDescStyle.Render(" cmd") + sep +
 				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + sep +
 				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + sep +
-				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
+				StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
 		} else {
 			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + sep +
 				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + sep +
@@ -1440,7 +1445,7 @@ func (m Model) renderStatusBar() string {
 				StatusKeyStyle.Render(":") + StatusDescStyle.Render(" cmd") + sep +
 				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + sep +
 				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + sep +
-				StatusKeyStyle.Render("ctrl+c") + StatusDescStyle.Render(" quit")
+				StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
 		}
 	}
 
@@ -1536,7 +1541,7 @@ func (m Model) renderHelpOverlay() string {
 			{"a", "toggle all namespaces"},
 			{"c", "switch context"},
 			{"?", "toggle this help"},
-			{"ctrl+c", "quit"},
+			{"q/ctrl+c", "quit"},
 		}},
 	}
 
@@ -1556,8 +1561,15 @@ func (m Model) renderHelpOverlay() string {
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
 
+func clearStatusCmd() tea.Cmd {
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+		return ClearStatusMsg{}
+	})
+}
+
 // Message types
 type TickMsg struct{}
+type ClearStatusMsg struct{}
 type ErrorMsg struct{ Err error }
 type AllNamespacesToggleMsg struct{}
 type ExecFinishedMsg struct{ Err error }

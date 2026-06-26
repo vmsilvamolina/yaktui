@@ -25,6 +25,8 @@ type LogsModel struct {
 	height        int
 	loading       bool
 	following     bool
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 // NewLogsModel creates a new logs model
@@ -38,6 +40,7 @@ func NewLogsModel(c *client.Client, pod *corev1.Pod) *LogsModel {
 	vp.Style = lipgloss.NewStyle().
 		Foreground(ColorText)
 
+	ctx, cancel := context.WithCancel(context.Background())
 	return &LogsModel{
 		client:        c,
 		pod:           pod,
@@ -45,7 +48,14 @@ func NewLogsModel(c *client.Client, pod *corev1.Pod) *LogsModel {
 		viewport:      vp,
 		loading:       true,
 		following:     true,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
+}
+
+// Cancel cancels any in-flight log fetch.
+func (m *LogsModel) Cancel() {
+	m.cancel()
 }
 
 // Init initializes the model
@@ -150,7 +160,7 @@ func (m *LogsModel) GetLogTitle() string {
 }
 
 func (m *LogsModel) fetchLogs() tea.Msg {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
 	defer cancel()
 
 	m.client.SetNamespace(m.pod.Namespace)
