@@ -112,17 +112,17 @@ type Model struct {
 	showAllNamespaces bool
 
 	// Resource views
-	podsView        *PodsModel
-	deploymentsView *DeploymentsModel
-	servicesView    *ServicesModel
-	configmapsView  *ConfigMapsModel
-	secretsView     *SecretsModel
-	namespacesView  *NamespacesModel
+	podsView         *PodsModel
+	deploymentsView  *DeploymentsModel
+	servicesView     *ServicesModel
+	configmapsView   *ConfigMapsModel
+	secretsView      *SecretsModel
+	namespacesView   *NamespacesModel
 	nodesView        *NodesModel
 	statefulSetsView *StatefulSetsModel
 	daemonSetsView   *DaemonSetsModel
 
-	eventsView       *EventsModel
+	eventsView *EventsModel
 
 	// Special views
 	relationsView *RelationsModel
@@ -212,21 +212,21 @@ func matchPalette(input string) []commandMatch {
 // NewModel creates a new application model
 func NewModel(c *client.Client, kubeconfig string) Model {
 	return Model{
-		client:          c,
-		keys:            DefaultKeyMap,
-		kubeconfig:      kubeconfig,
-		connectionState: Connecting,
-		focusedPanel:    ContentPanel,
-		sidebarItems:    resourceTypes,
-		sidebarSelected: 0,
-		currentResource: ResourcePods,
-		currentView:     ViewList,
-		podsView:        NewPodsModel(c),
-		deploymentsView: NewDeploymentsModel(c),
-		servicesView:    NewServicesModel(c),
-		configmapsView:  NewConfigMapsModel(c),
-		secretsView:     NewSecretsModel(c),
-		namespacesView:  NewNamespacesModel(c),
+		client:           c,
+		keys:             DefaultKeyMap,
+		kubeconfig:       kubeconfig,
+		connectionState:  Connecting,
+		focusedPanel:     ContentPanel,
+		sidebarItems:     resourceTypes,
+		sidebarSelected:  0,
+		currentResource:  ResourcePods,
+		currentView:      ViewList,
+		podsView:         NewPodsModel(c),
+		deploymentsView:  NewDeploymentsModel(c),
+		servicesView:     NewServicesModel(c),
+		configmapsView:   NewConfigMapsModel(c),
+		secretsView:      NewSecretsModel(c),
+		namespacesView:   NewNamespacesModel(c),
 		nodesView:        NewNodesModel(c),
 		statefulSetsView: NewStatefulSetsModel(c),
 		daemonSetsView:   NewDaemonSetsModel(c),
