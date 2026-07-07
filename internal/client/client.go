@@ -15,9 +15,9 @@ import (
 
 // ClusterInfo holds metadata about the connected cluster
 type ClusterInfo struct {
-	Context   string
-	Cluster   string
-	Version   string
+	Context string
+	Cluster string
+	Version string
 }
 
 // Client wraps the Kubernetes clientset
@@ -153,7 +153,7 @@ func (c *Client) GetPodLogs(ctx context.Context, podName, containerName string, 
 	if err != nil {
 		return "", err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	logs, err := io.ReadAll(stream)
 	if err != nil {

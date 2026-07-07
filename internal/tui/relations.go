@@ -343,7 +343,6 @@ func (m *RelationsModel) renderGraph() string {
 
 	if m.relations.Deployment != nil {
 		sb.WriteString("    " + m.formatNodeInline("Deployment", m.relations.Deployment.Name, idx) + "\n")
-		idx++
 	}
 
 	return sb.String()
@@ -414,7 +413,7 @@ func (m *RelationsModel) renderDetails() string {
 		sb.WriteString(labelStyle.Render("Age: ") + formatAge(m.pod.CreationTimestamp.Time) + "\n")
 		sb.WriteString("\n" + labelStyle.Render("Containers:") + "\n")
 		for _, c := range m.pod.Spec.Containers {
-			sb.WriteString(fmt.Sprintf("  • %s (%s)\n", c.Name, c.Image))
+			fmt.Fprintf(&sb, "  • %s (%s)\n", c.Name, c.Image)
 		}
 
 	case "Deployment":
@@ -450,7 +449,7 @@ func (m *RelationsModel) renderDetails() string {
 				sb.WriteString(labelStyle.Render("ClusterIP: ") + svc.Spec.ClusterIP + "\n")
 				sb.WriteString(labelStyle.Render("Ports:") + "\n")
 				for _, port := range svc.Spec.Ports {
-					sb.WriteString(fmt.Sprintf("  • %s: %d → %d\n", port.Name, port.Port, port.TargetPort.IntValue()))
+					fmt.Fprintf(&sb, "  • %s: %d → %d\n", port.Name, port.Port, port.TargetPort.IntValue())
 				}
 				break
 			}

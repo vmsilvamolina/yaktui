@@ -363,11 +363,3 @@ func formatAge(t time.Time) string {
 	}
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
-
-func formatLabels(labels map[string]string) string {
-	var parts []string
-	for k, v := range labels {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
-	}
-	return strings.Join(parts, ", ")
-}
