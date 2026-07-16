@@ -22,7 +22,7 @@ type ClusterInfo struct {
 
 // Client wraps the Kubernetes clientset
 type Client struct {
-	clientset   *kubernetes.Clientset
+	clientset   kubernetes.Interface
 	namespace   string
 	kubeconfig  string
 	clusterInfo ClusterInfo
