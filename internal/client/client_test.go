@@ -12,9 +12,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/version"
 	discoveryfake "k8s.io/client-go/discovery/fake"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -26,6 +29,16 @@ func newTestClient() (*Client, *fake.Clientset) {
 		namespace: "default",
 	}
 	return c, fakeClientset
+}
+
+func newAddonTestClient(gvr schema.GroupVersionResource, listKind string, objects ...runtime.Object) (*Client, *dynamicfake.FakeDynamicClient) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{gvr: listKind}, objects...)
+	c := &Client{
+		dynamicClient: dynClient,
+		namespace:     "default",
+	}
+	return c, dynClient
 }
 
 func TestNamespaceGetSet(t *testing.T) {
@@ -466,6 +479,109 @@ func TestFetchServerVersion(t *testing.T) {
 	}
 	if c.GetClusterInfo().Version != "v1.29.0" {
 		t.Fatalf("expected cached version v1.29.0, got %q", c.GetClusterInfo().Version)
+	}
+}
+
+func TestDetectAPIGroups(t *testing.T) {
+	c, fakeClientset := newTestClient()
+	fakeDiscovery, ok := fakeClientset.Discovery().(*discoveryfake.FakeDiscovery)
+	if !ok {
+		t.Fatal("expected FakeDiscovery")
+	}
+	fakeDiscovery.Resources = []*metav1.APIResourceList{
+		{GroupVersion: "kyverno.io/v1"},
+		{GroupVersion: "v1"},
+	}
+
+	groups, err := c.DetectAPIGroups(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !groups["kyverno.io"] {
+		t.Fatalf("expected kyverno.io to be detected, got %+v", groups)
+	}
+	if !groups[""] {
+		t.Fatalf("expected core group (empty name) to be detected, got %+v", groups)
+	}
+}
+
+func TestDetectAPIGroupsError(t *testing.T) {
+	c, fakeClientset := newTestClient()
+	fakeDiscovery, ok := fakeClientset.Discovery().(*discoveryfake.FakeDiscovery)
+	if !ok {
+		t.Fatal("expected FakeDiscovery")
+	}
+	fakeDiscovery.Resources = []*metav1.APIResourceList{
+		{GroupVersion: "not a valid group version///"},
+	}
+
+	if _, err := c.DetectAPIGroups(context.Background()); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func kyvernoGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "clusterpolicies"}
+}
+
+func newUnstructuredPolicy(kind, name, namespace string) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "kyverno.io/v1",
+			"kind":       kind,
+			"metadata": map[string]interface{}{
+				"name": name,
+			},
+		},
+	}
+	if namespace != "" {
+		obj.Object["metadata"].(map[string]interface{})["namespace"] = namespace
+	}
+	return obj
+}
+
+func TestListAddonResourceClusterScoped(t *testing.T) {
+	gvr := kyvernoGVR()
+	c, _ := newAddonTestClient(gvr, "ClusterPolicyList", newUnstructuredPolicy("ClusterPolicy", "policy-a", ""))
+
+	list, err := c.ListAddonResource(context.Background(), gvr, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 1 || list.Items[0].GetName() != "policy-a" {
+		t.Fatalf("unexpected items: %+v", list.Items)
+	}
+}
+
+func TestListAddonResourceNamespaced(t *testing.T) {
+	gvr := schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "policies"}
+	c, _ := newAddonTestClient(gvr, "PolicyList",
+		newUnstructuredPolicy("Policy", "pol-a", "default"),
+		newUnstructuredPolicy("Policy", "pol-b", "other"),
+	)
+
+	list, err := c.ListAddonResource(context.Background(), gvr, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 1 || list.Items[0].GetName() != "pol-a" {
+		t.Fatalf("unexpected items: %+v", list.Items)
+	}
+}
+
+func TestListAllAddonResource(t *testing.T) {
+	gvr := schema.GroupVersionResource{Group: "kyverno.io", Version: "v1", Resource: "policies"}
+	c, _ := newAddonTestClient(gvr, "PolicyList",
+		newUnstructuredPolicy("Policy", "pol-a", "default"),
+		newUnstructuredPolicy("Policy", "pol-b", "other"),
+	)
+
+	list, err := c.ListAllAddonResource(context.Background(), gvr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("expected 2 items across namespaces, got %d", len(list.Items))
 	}
 }
 

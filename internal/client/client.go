@@ -9,6 +9,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -22,10 +25,11 @@ type ClusterInfo struct {
 
 // Client wraps the Kubernetes clientset
 type Client struct {
-	clientset   kubernetes.Interface
-	namespace   string
-	kubeconfig  string
-	clusterInfo ClusterInfo
+	clientset     kubernetes.Interface
+	dynamicClient dynamic.Interface
+	namespace     string
+	kubeconfig    string
+	clusterInfo   ClusterInfo
 }
 
 // New creates a new Kubernetes client
@@ -36,6 +40,11 @@ func New(kubeconfig, namespace string) (*Client, error) {
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -57,10 +66,11 @@ func New(kubeconfig, namespace string) (*Client, error) {
 	}
 
 	return &Client{
-		clientset:   clientset,
-		namespace:   namespace,
-		kubeconfig:  kubeconfig,
-		clusterInfo: info,
+		clientset:     clientset,
+		dynamicClient: dynamicClient,
+		namespace:     namespace,
+		kubeconfig:    kubeconfig,
+		clusterInfo:   info,
 	}, nil
 }
 
@@ -334,6 +344,35 @@ func (c *Client) ListAllEvents(ctx context.Context) ([]corev1.Event, error) {
 	return list.Items, nil
 }
 
+// DetectAPIGroups returns the set of API group names registered on the
+// cluster, used to auto-detect whether an addon's CRD is installed.
+func (c *Client) DetectAPIGroups(ctx context.Context) (map[string]bool, error) {
+	groups, err := c.clientset.Discovery().ServerGroups()
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool, len(groups.Groups))
+	for _, g := range groups.Groups {
+		set[g.Name] = true
+	}
+	return set, nil
+}
+
+// ListAddonResource returns items of an addon's CRD in the current namespace
+// (or cluster-wide if namespaced is false).
+func (c *Client) ListAddonResource(ctx context.Context, gvr schema.GroupVersionResource, namespaced bool) (*unstructured.UnstructuredList, error) {
+	ri := c.dynamicClient.Resource(gvr)
+	if namespaced {
+		return ri.Namespace(c.namespace).List(ctx, metav1.ListOptions{})
+	}
+	return ri.List(ctx, metav1.ListOptions{})
+}
+
+// ListAllAddonResource returns items of an addon's CRD across all namespaces.
+func (c *Client) ListAllAddonResource(ctx context.Context, gvr schema.GroupVersionResource) (*unstructured.UnstructuredList, error) {
+	return c.dynamicClient.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{})
+}
+
 // ListContexts returns sorted context names from the kubeconfig and the active context.
 func ListContexts(kubeconfig string) ([]string, string, error) {
 	rawConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -367,6 +406,11 @@ func NewWithContext(kubeconfig, contextName, namespace string) (*Client, error) 
 		return nil, err
 	}
 
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	if namespace == "" {
 		namespace = "default"
 	}
@@ -383,9 +427,10 @@ func NewWithContext(kubeconfig, contextName, namespace string) (*Client, error) 
 	}
 
 	return &Client{
-		clientset:   clientset,
-		namespace:   namespace,
-		kubeconfig:  kubeconfig,
-		clusterInfo: info,
+		clientset:     clientset,
+		dynamicClient: dynamicClient,
+		namespace:     namespace,
+		kubeconfig:    kubeconfig,
+		clusterInfo:   info,
 	}, nil
 }

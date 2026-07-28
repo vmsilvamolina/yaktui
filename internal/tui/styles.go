@@ -57,6 +57,12 @@ var (
 				Bold(true).
 				PaddingLeft(1)
 
+	SidebarSectionStyle = lipgloss.NewStyle().
+				Foreground(ColorMuted).
+				Bold(true).
+				PaddingLeft(1).
+				MarginTop(1)
+
 	// Content area styles
 	ContentStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

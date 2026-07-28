@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vmsilvamolina/yaktui/internal/addons"
 	"github.com/vmsilvamolina/yaktui/internal/client"
 )
 
@@ -63,6 +64,11 @@ var resourceTypes = []ResourceType{
 	ResourceNodes,
 	ResourceEvents,
 }
+
+// resourceAddonBase is the first ResourceType id assigned to addon resources
+// (see internal/addons), keeping them out of the fixed built-in enum range
+// above so new addons never require changes to this file.
+const resourceAddonBase ResourceType = 1000
 
 // View represents the current view state
 type View int
@@ -123,6 +129,11 @@ type Model struct {
 	daemonSetsView   *DaemonSetsModel
 
 	eventsView *EventsModel
+
+	// Addon views (CRD resources, see internal/addons)
+	addonModels []*AddonModel
+	addonByType map[ResourceType]*AddonModel
+	addonByName map[string]ResourceType
 
 	// Special views
 	relationsView *RelationsModel
@@ -193,7 +204,15 @@ var paletteAliases = []struct {
 	{"events", ResourceEvents},
 }
 
-func matchPalette(input string) []commandMatch {
+// addonAlias pairs a match-trigger alias with the commandMatch to emit when
+// that alias matches — used for addon resources, whose displayed label
+// (Definition.DisplayName) may differ from every alias that triggers it.
+type addonAlias struct {
+	alias string
+	match commandMatch
+}
+
+func matchPalette(input string, extra []addonAlias) []commandMatch {
 	if input == "" {
 		return nil
 	}
@@ -206,18 +225,40 @@ func matchPalette(input string) []commandMatch {
 			matches = append(matches, commandMatch{label: a.resource.String(), resource: a.resource})
 		}
 	}
+	for _, e := range extra {
+		if strings.HasPrefix(strings.ToLower(e.alias), lower) && !seen[e.match.resource] {
+			seen[e.match.resource] = true
+			matches = append(matches, e.match)
+		}
+	}
 	return matches
 }
 
-// NewModel creates a new application model
-func NewModel(c *client.Client, kubeconfig string) Model {
+// NewModel creates a new application model. activeAddons are the addon
+// definitions (see internal/addons) already filtered down to the ones that
+// should be shown, e.g. via addons.ActivateDefinitions.
+func NewModel(c *client.Client, kubeconfig string, activeAddons []addons.Definition) Model {
+	sidebarItems := append([]ResourceType{}, resourceTypes...)
+	addonModels := make([]*AddonModel, 0, len(activeAddons))
+	addonByType := make(map[ResourceType]*AddonModel, len(activeAddons))
+	addonByName := make(map[string]ResourceType, len(activeAddons))
+
+	for i, def := range activeAddons {
+		rt := resourceAddonBase + ResourceType(i)
+		am := NewAddonModel(def, c)
+		addonModels = append(addonModels, am)
+		addonByType[rt] = am
+		addonByName[def.Name] = rt
+		sidebarItems = append(sidebarItems, rt)
+	}
+
 	return Model{
 		client:           c,
 		keys:             DefaultKeyMap,
 		kubeconfig:       kubeconfig,
 		connectionState:  Connecting,
 		focusedPanel:     ContentPanel,
-		sidebarItems:     resourceTypes,
+		sidebarItems:     sidebarItems,
 		sidebarSelected:  0,
 		currentResource:  ResourcePods,
 		currentView:      ViewList,
@@ -231,7 +272,36 @@ func NewModel(c *client.Client, kubeconfig string) Model {
 		statefulSetsView: NewStatefulSetsModel(c),
 		daemonSetsView:   NewDaemonSetsModel(c),
 		eventsView:       NewEventsModel(c),
+		addonModels:      addonModels,
+		addonByType:      addonByType,
+		addonByName:      addonByName,
 	}
+}
+
+// resourceLabel returns the display name for r, whether it's a built-in
+// ResourceType or an addon ResourceType (>= resourceAddonBase).
+func (m Model) resourceLabel(r ResourceType) string {
+	if r < resourceAddonBase {
+		return r.String()
+	}
+	if am, ok := m.addonByType[r]; ok {
+		return am.def.DisplayName
+	}
+	return "Unknown"
+}
+
+// addonPaletteMatches builds command-palette aliases for active addons, to
+// be merged with the static paletteAliases-derived matches.
+func (m Model) addonPaletteMatches() []addonAlias {
+	var extra []addonAlias
+	for rt, am := range m.addonByType {
+		match := commandMatch{label: am.def.DisplayName, resource: rt}
+		extra = append(extra, addonAlias{alias: am.def.DisplayName, match: match})
+		for _, alias := range am.def.Aliases {
+			extra = append(extra, addonAlias{alias: alias, match: match})
+		}
+	}
+	return extra
 }
 
 // Init implements tea.Model
@@ -272,7 +342,7 @@ func (m Model) fetchServerVersion() tea.Msg {
 
 // loadAllResources loads all resources after successful connection
 func (m Model) loadAllResources() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		m.podsView.Init(),
 		m.podsView.InitAllNamespaces(),
 		m.deploymentsView.Init(),
@@ -291,7 +361,11 @@ func (m Model) loadAllResources() tea.Cmd {
 		m.daemonSetsView.InitAllNamespaces(),
 		m.eventsView.Init(),
 		m.eventsView.InitAllNamespaces(),
-	)
+	}
+	for _, am := range m.addonModels {
+		cmds = append(cmds, am.Init(), am.InitAllNamespaces())
+	}
+	return tea.Batch(cmds...)
 }
 
 // ConnectionResultMsg is sent when connection check completes
@@ -380,12 +454,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.commandInput) > 0 {
 					runes := []rune(m.commandInput)
 					m.commandInput = string(runes[:len(runes)-1])
-					m.commandMatches = matchPalette(m.commandInput)
+					m.commandMatches = matchPalette(m.commandInput, m.addonPaletteMatches())
 				}
 			default:
 				if len(msg.Runes) > 0 {
 					m.commandInput += string(msg.Runes)
-					m.commandMatches = matchPalette(m.commandInput)
+					m.commandMatches = matchPalette(m.commandInput, m.addonPaletteMatches())
 				}
 			}
 			return m, nil
@@ -445,6 +519,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statefulSetsView.SetShowAllNamespaces(m.showAllNamespaces)
 			m.daemonSetsView.SetShowAllNamespaces(m.showAllNamespaces)
 			m.eventsView.SetShowAllNamespaces(m.showAllNamespaces)
+			for _, am := range m.addonModels {
+				am.SetShowAllNamespaces(m.showAllNamespaces)
+			}
 			// No need to fetch again - SetShowAllNamespaces uses cached data
 			return m, nil
 		}
@@ -568,6 +645,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.eventsView != nil {
 			m.eventsView.SetSize(contentWidth, contentHeight)
 		}
+		for _, am := range m.addonModels {
+			am.SetSize(contentWidth, contentHeight)
+		}
 		if m.relationsView != nil {
 			m.relationsView.SetSize(contentWidth, contentHeight)
 		}
@@ -665,6 +745,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statefulSetsView = NewStatefulSetsModel(m.client)
 		m.daemonSetsView = NewDaemonSetsModel(m.client)
 		m.eventsView = NewEventsModel(m.client)
+		for i, am := range m.addonModels {
+			fresh := NewAddonModel(am.def, m.client)
+			m.addonModels[i] = fresh
+			m.addonByType[m.addonByName[am.def.Name]] = fresh
+		}
 		contentWidth := m.width - 27
 		contentHeight := m.height - 7
 		m.podsView.SetSize(contentWidth, contentHeight)
@@ -677,6 +762,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statefulSetsView.SetSize(contentWidth, contentHeight)
 		m.daemonSetsView.SetSize(contentWidth, contentHeight)
 		m.eventsView.SetSize(contentWidth, contentHeight)
+		for _, am := range m.addonModels {
+			am.SetSize(contentWidth, contentHeight)
+		}
 		m.statusMessage = "switched to context: " + m.clusterInfo.Context
 		return m, tea.Batch(m.loadAllResources(), m.fetchServerVersion, clearStatusCmd())
 	}
@@ -742,6 +830,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			newView, cmd := m.eventsView.Update(msg)
 			m.eventsView = newView.(*EventsModel)
 			return m, cmd
+		}
+	case AddonMsg, AddonAllNSMsg:
+		name := addonMsgName(msg)
+		if rt, ok := m.addonByName[name]; ok {
+			if am, ok := m.addonByType[rt]; ok {
+				newView, cmd := am.Update(msg)
+				m.addonByType[rt] = newView.(*AddonModel)
+				return m, cmd
+			}
 		}
 	}
 
@@ -862,6 +959,14 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
+		default:
+			if am, ok := m.addonByType[m.currentResource]; ok {
+				if item := am.GetSelected(); item != nil {
+					m.describeView = NewDescribeModel(item.GetName(), item.Object)
+					m.describeView.SetSize(m.width-27, m.height-7)
+					m.currentView = ViewDescribe
+				}
+			}
 		}
 		return m, nil
 	}
@@ -979,6 +1084,13 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		newView, cmd := m.eventsView.Update(msg)
 		m.eventsView = newView.(*EventsModel)
 		return m, cmd
+
+	default:
+		if am, ok := m.addonByType[m.currentResource]; ok {
+			newView, cmd := am.Update(msg)
+			m.addonByType[m.currentResource] = newView.(*AddonModel)
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -1026,6 +1138,12 @@ func (m Model) updateCurrentView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newView, cmd := m.eventsView.Update(msg)
 		m.eventsView = newView.(*EventsModel)
 		return m, cmd
+	default:
+		if am, ok := m.addonByType[m.currentResource]; ok {
+			newView, cmd := am.Update(msg)
+			m.addonByType[m.currentResource] = newView.(*AddonModel)
+			return m, cmd
+		}
 	}
 	return m, nil
 }
@@ -1052,6 +1170,10 @@ func (m Model) initCurrentView() tea.Cmd {
 		return m.daemonSetsView.Init()
 	case ResourceEvents:
 		return m.eventsView.Init()
+	default:
+		if am, ok := m.addonByType[m.currentResource]; ok {
+			return am.Init()
+		}
 	}
 	return nil
 }
@@ -1078,6 +1200,10 @@ func (m *Model) setFilterOnCurrentView() {
 		m.daemonSetsView.SetFilter(m.filterQuery)
 	case ResourceEvents:
 		m.eventsView.SetFilter(m.filterQuery)
+	default:
+		if am, ok := m.addonByType[m.currentResource]; ok {
+			am.SetFilter(m.filterQuery)
+		}
 	}
 }
 
@@ -1103,6 +1229,10 @@ func (m Model) refreshCurrentView() (tea.Model, tea.Cmd) {
 		return m, m.daemonSetsView.Refresh()
 	case ResourceEvents:
 		return m, m.eventsView.Refresh()
+	default:
+		if am, ok := m.addonByType[m.currentResource]; ok {
+			return m, am.Refresh()
+		}
 	}
 	return m, nil
 }
@@ -1212,14 +1342,18 @@ func (m Model) renderHeader() string {
 
 func (m Model) renderSidebar() string {
 	var items string
+	addonsStart := len(resourceTypes)
 	for i, item := range m.sidebarItems {
+		if i == addonsStart {
+			items += SidebarSectionStyle.Render("Addons") + "\n"
+		}
 		style := SidebarItemStyle
 		prefix := "  "
 		if i == m.sidebarSelected {
 			style = SidebarSelectedStyle
 			prefix = "▸ "
 		}
-		items += style.Render(prefix+item.String()) + "\n"
+		items += style.Render(prefix+m.resourceLabel(item)) + "\n"
 	}
 
 	sidebarHeight := m.height - 5
@@ -1298,6 +1432,11 @@ func (m Model) renderContent() string {
 		case ResourceEvents:
 			content = m.eventsView.View()
 			count = m.eventsView.Count()
+		default:
+			if am, ok := m.addonByType[m.currentResource]; ok {
+				content = am.View()
+				count = am.Count()
+			}
 		}
 		// Build title with namespace info, count, and active filter
 		nsInfo := ""
@@ -1307,9 +1446,9 @@ func (m Model) renderContent() string {
 			nsInfo = "[" + m.client.Namespace() + "]"
 		}
 		if m.filterQuery != "" {
-			title = fmt.Sprintf("%s %s (%d) /%s", m.currentResource.String(), nsInfo, count, m.filterQuery)
+			title = fmt.Sprintf("%s %s (%d) /%s", m.resourceLabel(m.currentResource), nsInfo, count, m.filterQuery)
 		} else {
-			title = fmt.Sprintf("%s %s (%d)", m.currentResource.String(), nsInfo, count)
+			title = fmt.Sprintf("%s %s (%d)", m.resourceLabel(m.currentResource), nsInfo, count)
 		}
 	}
 
