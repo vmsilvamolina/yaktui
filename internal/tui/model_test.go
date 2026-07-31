@@ -15,7 +15,7 @@ func TestNewModelWiresAddonsIntoSidebar(t *testing.T) {
 	if len(m.addonModels) != 2 {
 		t.Fatalf("expected 2 addon models, got %d", len(m.addonModels))
 	}
-	if len(m.sidebarItems) != len(resourceTypes)+2 {
+	if len(m.sidebarItems) != len(k8sResourceTypes)+2 {
 		t.Fatalf("expected sidebar to include addons, got %d items", len(m.sidebarItems))
 	}
 
@@ -34,7 +34,7 @@ func TestNewModelSingleMixedAddonProducesOneSidebarEntry(t *testing.T) {
 	if len(m.addonModels) != 1 {
 		t.Fatalf("expected 1 addon model, got %d", len(m.addonModels))
 	}
-	if len(m.sidebarItems) != len(resourceTypes)+1 {
+	if len(m.sidebarItems) != len(k8sResourceTypes)+1 {
 		t.Fatalf("expected sidebar to include exactly 1 addon entry, got %d items", len(m.sidebarItems))
 	}
 

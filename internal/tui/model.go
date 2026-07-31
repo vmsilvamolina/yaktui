@@ -9,8 +9,10 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	dockersystem "github.com/docker/docker/api/types/system"
 	"github.com/vmsilvamolina/yaktui/internal/addons"
 	"github.com/vmsilvamolina/yaktui/internal/client"
+	"github.com/vmsilvamolina/yaktui/internal/dockerclient"
 )
 
 // Panel represents which panel is focused
@@ -35,6 +37,10 @@ const (
 	ResourceStatefulSets
 	ResourceDaemonSets
 	ResourceEvents
+	ResourceContainers
+	ResourceImages
+	ResourceVolumes
+	ResourceNetworks
 )
 
 func (r ResourceType) String() string {
@@ -49,10 +55,15 @@ func (r ResourceType) String() string {
 		"StatefulSets",
 		"DaemonSets",
 		"Events",
+		"Containers",
+		"Images",
+		"Volumes",
+		"Networks",
 	}[r]
 }
 
-var resourceTypes = []ResourceType{
+// k8sResourceTypes lists the sidebar resources shown in Kubernetes mode.
+var k8sResourceTypes = []ResourceType{
 	ResourcePods,
 	ResourceDeployments,
 	ResourceStatefulSets,
@@ -64,6 +75,22 @@ var resourceTypes = []ResourceType{
 	ResourceNodes,
 	ResourceEvents,
 }
+
+// dockerResourceTypes lists the sidebar resources shown in Docker mode.
+var dockerResourceTypes = []ResourceType{
+	ResourceContainers,
+	ResourceImages,
+	ResourceVolumes,
+	ResourceNetworks,
+}
+
+// Backend represents which system the TUI is currently browsing
+type Backend int
+
+const (
+	BackendKubernetes Backend = iota
+	BackendDocker
+)
 
 // resourceAddonBase is the first ResourceType id assigned to addon resources
 // (see internal/addons), keeping them out of the fixed built-in enum range
@@ -135,14 +162,26 @@ type Model struct {
 	addonByType map[ResourceType]*AddonModel
 	addonByName map[string]ResourceType
 
+	// Docker backend
+	backend        Backend
+	dockerClient   *dockerclient.Client // nil until first switch to Docker mode
+	dockerInfo     dockersystem.Info
+	containersView *ContainersModel
+	imagesView     *ImagesModel
+	volumesView    *VolumesModel
+	networksView   *NetworksModel
+
 	// Special views
-	relationsView *RelationsModel
-	logsView      *LogsModel
-	describeView  *DescribeModel
+	relationsView     *RelationsModel
+	logsView          *LogsModel
+	containerLogsView *ContainerLogsModel
+	describeView      *DescribeModel
 
 	// Delete confirmation
 	confirmDelete       bool
 	confirmDeleteTarget string
+	confirmDeleteKind   string // "pod" | "container"
+	confirmDeleteLabel  string // display text (may differ from confirmDeleteTarget, e.g. container name vs ID)
 
 	// Search/filter
 	filterMode  bool
@@ -238,7 +277,7 @@ func matchPalette(input string, extra []addonAlias) []commandMatch {
 // definitions (see internal/addons) already filtered down to the ones that
 // should be shown, e.g. via addons.ActivateDefinitions.
 func NewModel(c *client.Client, kubeconfig string, activeAddons []addons.Definition) Model {
-	sidebarItems := append([]ResourceType{}, resourceTypes...)
+	sidebarItems := append([]ResourceType{}, k8sResourceTypes...)
 	addonModels := make([]*AddonModel, 0, len(activeAddons))
 	addonByType := make(map[ResourceType]*AddonModel, len(activeAddons))
 	addonByName := make(map[string]ResourceType, len(activeAddons))
@@ -383,10 +422,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y":
 				m.confirmDelete = false
+				if m.confirmDeleteKind == "container" {
+					return m, m.removeContainer(m.confirmDeleteTarget, m.confirmDeleteLabel)
+				}
 				return m, m.deletePod(m.confirmDeleteTarget)
 			case "n", "N", "esc":
 				m.confirmDelete = false
 				m.confirmDeleteTarget = ""
+				m.confirmDeleteLabel = ""
+				m.confirmDeleteKind = ""
 			}
 			return m, nil
 		}
@@ -507,8 +551,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Toggle between Kubernetes and Docker mode
+		if key.Matches(msg, m.keys.BackendSwitch) && m.currentView == ViewList {
+			return m, m.toggleBackend
+		}
+
 		// Global toggle for all namespaces
-		if key.Matches(msg, m.keys.AllNS) && m.currentView == ViewList {
+		if key.Matches(msg, m.keys.AllNS) && m.currentView == ViewList && m.backend == BackendKubernetes {
 			m.showAllNamespaces = !m.showAllNamespaces
 			// Propagate to all views - they will use cache if available
 			m.podsView.SetShowAllNamespaces(m.showAllNamespaces)
@@ -527,11 +576,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Context switch
-		if key.Matches(msg, m.keys.ContextSwitch) && m.currentView == ViewList {
+		if key.Matches(msg, m.keys.ContextSwitch) && m.currentView == ViewList && m.backend == BackendKubernetes {
 			return m, m.fetchContexts
 		}
 
 		// Handle based on current view
+		if m.currentView == ViewLogs && m.containerLogsView != nil {
+			if key.Matches(msg, m.keys.Back) {
+				m.containerLogsView.Cancel()
+				m.currentView = ViewList
+				m.containerLogsView = nil
+				return m, nil
+			}
+			newLogsView, cmd := m.containerLogsView.Update(msg)
+			m.containerLogsView = newLogsView.(*ContainerLogsModel)
+			return m, cmd
+		}
+
 		if m.currentView == ViewLogs && m.logsView != nil {
 			if key.Matches(msg, m.keys.Back) {
 				m.logsView.Cancel()
@@ -648,11 +709,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, am := range m.addonModels {
 			am.SetSize(contentWidth, contentHeight)
 		}
+		if m.containersView != nil {
+			m.containersView.SetSize(contentWidth, contentHeight)
+		}
+		if m.imagesView != nil {
+			m.imagesView.SetSize(contentWidth, contentHeight)
+		}
+		if m.volumesView != nil {
+			m.volumesView.SetSize(contentWidth, contentHeight)
+		}
+		if m.networksView != nil {
+			m.networksView.SetSize(contentWidth, contentHeight)
+		}
 		if m.relationsView != nil {
 			m.relationsView.SetSize(contentWidth, contentHeight)
 		}
 		if m.logsView != nil {
 			m.logsView.SetSize(contentWidth, contentHeight)
+		}
+		if m.containerLogsView != nil {
+			m.containerLogsView.SetSize(contentWidth, contentHeight)
 		}
 		if m.describeView != nil {
 			m.describeView.SetSize(contentWidth, contentHeight)
@@ -670,7 +746,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case LogsMsg, LogsTickMsg, LogsErrorMsg:
-		// Forward to logs view
+		// Forward to whichever logs view is active
+		if m.containerLogsView != nil {
+			newView, cmd := m.containerLogsView.Update(msg)
+			m.containerLogsView = newView.(*ContainerLogsModel)
+			return m, cmd
+		}
 		if m.logsView != nil {
 			newView, cmd := m.logsView.Update(msg)
 			m.logsView = newView.(*LogsModel)
@@ -680,7 +761,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TickMsg:
 		newModel, cmd := m.refreshCurrentView()
+		if m.backend == BackendDocker {
+			return newModel, tea.Batch(cmd, tickCmd(), m.fetchDockerInfo)
+		}
 		return newModel, tea.Batch(cmd, tickCmd())
+
+	case DockerInfoMsg:
+		if msg.Err == nil {
+			m.dockerInfo = msg.Info
+		}
+		return m, nil
+
+	case BackendSwitchedMsg:
+		return m.handleBackendSwitched(msg)
+
+	case RemoveContainerResultMsg:
+		if msg.Err != nil {
+			m.statusMessage = "error removing " + msg.Name + ": " + msg.Err.Error()
+			return m, clearStatusCmd()
+		}
+		m.statusMessage = "removed container: " + msg.Name
+		return m, tea.Batch(m.containersView.Refresh(), clearStatusCmd())
+
+	case ContainerActionResultMsg:
+		if msg.Err != nil {
+			m.statusMessage = msg.Action + " " + msg.Name + ": " + msg.Err.Error()
+			return m, clearStatusCmd()
+		}
+		m.statusMessage = msg.Action + "ed container: " + msg.Name
+		return m, tea.Batch(m.containersView.Refresh(), clearStatusCmd())
 
 	case ClearStatusMsg:
 		m.statusMessage = ""
@@ -959,6 +1068,30 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.describeView.SetSize(m.width-27, m.height-7)
 				m.currentView = ViewDescribe
 			}
+		case ResourceContainers:
+			if c := m.containersView.GetSelectedContainer(); c != nil {
+				m.describeView = NewDescribeModel(containerDisplayName(*c), c)
+				m.describeView.SetSize(m.width-27, m.height-7)
+				m.currentView = ViewDescribe
+			}
+		case ResourceImages:
+			if img := m.imagesView.GetSelectedImage(); img != nil {
+				m.describeView = NewDescribeModel(img.ID, img)
+				m.describeView.SetSize(m.width-27, m.height-7)
+				m.currentView = ViewDescribe
+			}
+		case ResourceVolumes:
+			if v := m.volumesView.GetSelectedVolume(); v != nil {
+				m.describeView = NewDescribeModel(v.Name, v)
+				m.describeView.SetSize(m.width-27, m.height-7)
+				m.currentView = ViewDescribe
+			}
+		case ResourceNetworks:
+			if n := m.networksView.GetSelectedNetwork(); n != nil {
+				m.describeView = NewDescribeModel(n.Name, n)
+				m.describeView.SetSize(m.width-27, m.height-7)
+				m.currentView = ViewDescribe
+			}
 		default:
 			if am, ok := m.addonByType[m.currentResource]; ok {
 				if item := am.GetSelected(); item != nil {
@@ -971,6 +1104,13 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.backend == BackendDocker {
+		return m.updateContentDocker(msg)
+	}
+	return m.updateContentK8s(msg)
+}
+
+func (m Model) updateContentK8s(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Resource-specific keys
 	switch m.currentResource {
 	case ResourcePods:
@@ -1096,7 +1236,80 @@ func (m Model) updateContent(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateContentDocker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.currentResource {
+	case ResourceContainers:
+		if key.Matches(msg, m.keys.Logs) {
+			if c := m.containersView.GetSelectedContainer(); c != nil {
+				m.containerLogsView = NewContainerLogsModel(m.dockerClient, c.ID, containerDisplayName(*c))
+				m.containerLogsView.SetSize(m.width-27, m.height-7)
+				m.currentView = ViewLogs
+				return m, m.containerLogsView.Init()
+			}
+		}
+		if key.Matches(msg, m.keys.Shell) {
+			if c := m.containersView.GetSelectedContainer(); c != nil {
+				execCmd := m.dockerClient.ExecCmd(c.ID)
+				return m, tea.ExecProcess(execCmd, func(err error) tea.Msg {
+					return ExecFinishedMsg{Err: err}
+				})
+			}
+		}
+		if key.Matches(msg, m.keys.Delete) {
+			if c := m.containersView.GetSelectedContainer(); c != nil {
+				m.confirmDelete = true
+				m.confirmDeleteKind = "container"
+				m.confirmDeleteTarget = c.ID
+				m.confirmDeleteLabel = containerDisplayName(*c)
+				return m, nil
+			}
+		}
+		if key.Matches(msg, m.keys.Start) {
+			if c := m.containersView.GetSelectedContainer(); c != nil {
+				return m, m.containerAction("start", c.ID, containerDisplayName(*c))
+			}
+		}
+		if key.Matches(msg, m.keys.Stop) {
+			if c := m.containersView.GetSelectedContainer(); c != nil {
+				return m, m.containerAction("stop", c.ID, containerDisplayName(*c))
+			}
+		}
+		if key.Matches(msg, m.keys.Restart) {
+			if c := m.containersView.GetSelectedContainer(); c != nil {
+				return m, m.containerAction("restart", c.ID, containerDisplayName(*c))
+			}
+		}
+		newView, cmd := m.containersView.Update(msg)
+		m.containersView = newView.(*ContainersModel)
+		return m, cmd
+
+	case ResourceImages:
+		newView, cmd := m.imagesView.Update(msg)
+		m.imagesView = newView.(*ImagesModel)
+		return m, cmd
+
+	case ResourceVolumes:
+		newView, cmd := m.volumesView.Update(msg)
+		m.volumesView = newView.(*VolumesModel)
+		return m, cmd
+
+	case ResourceNetworks:
+		newView, cmd := m.networksView.Update(msg)
+		m.networksView = newView.(*NetworksModel)
+		return m, cmd
+	}
+
+	return m, nil
+}
+
 func (m Model) updateCurrentView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.backend == BackendDocker {
+		return m.updateCurrentViewDocker(msg)
+	}
+	return m.updateCurrentViewK8s(msg)
+}
+
+func (m Model) updateCurrentViewK8s(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.currentResource {
 	case ResourcePods:
 		newView, cmd := m.podsView.Update(msg)
@@ -1148,7 +1361,36 @@ func (m Model) updateCurrentView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateCurrentViewDocker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch m.currentResource {
+	case ResourceContainers:
+		newView, cmd := m.containersView.Update(msg)
+		m.containersView = newView.(*ContainersModel)
+		return m, cmd
+	case ResourceImages:
+		newView, cmd := m.imagesView.Update(msg)
+		m.imagesView = newView.(*ImagesModel)
+		return m, cmd
+	case ResourceVolumes:
+		newView, cmd := m.volumesView.Update(msg)
+		m.volumesView = newView.(*VolumesModel)
+		return m, cmd
+	case ResourceNetworks:
+		newView, cmd := m.networksView.Update(msg)
+		m.networksView = newView.(*NetworksModel)
+		return m, cmd
+	}
+	return m, nil
+}
+
 func (m Model) initCurrentView() tea.Cmd {
+	if m.backend == BackendDocker {
+		return m.initCurrentViewDocker()
+	}
+	return m.initCurrentViewK8s()
+}
+
+func (m Model) initCurrentViewK8s() tea.Cmd {
 	switch m.currentResource {
 	case ResourcePods:
 		return m.podsView.Init()
@@ -1178,7 +1420,29 @@ func (m Model) initCurrentView() tea.Cmd {
 	return nil
 }
 
+func (m Model) initCurrentViewDocker() tea.Cmd {
+	switch m.currentResource {
+	case ResourceContainers:
+		return m.containersView.Init()
+	case ResourceImages:
+		return m.imagesView.Init()
+	case ResourceVolumes:
+		return m.volumesView.Init()
+	case ResourceNetworks:
+		return m.networksView.Init()
+	}
+	return nil
+}
+
 func (m *Model) setFilterOnCurrentView() {
+	if m.backend == BackendDocker {
+		m.setFilterOnCurrentViewDocker()
+		return
+	}
+	m.setFilterOnCurrentViewK8s()
+}
+
+func (m *Model) setFilterOnCurrentViewK8s() {
 	switch m.currentResource {
 	case ResourcePods:
 		m.podsView.SetFilter(m.filterQuery)
@@ -1207,7 +1471,27 @@ func (m *Model) setFilterOnCurrentView() {
 	}
 }
 
+func (m *Model) setFilterOnCurrentViewDocker() {
+	switch m.currentResource {
+	case ResourceContainers:
+		m.containersView.SetFilter(m.filterQuery)
+	case ResourceImages:
+		m.imagesView.SetFilter(m.filterQuery)
+	case ResourceVolumes:
+		m.volumesView.SetFilter(m.filterQuery)
+	case ResourceNetworks:
+		m.networksView.SetFilter(m.filterQuery)
+	}
+}
+
 func (m Model) refreshCurrentView() (tea.Model, tea.Cmd) {
+	if m.backend == BackendDocker {
+		return m.refreshCurrentViewDocker()
+	}
+	return m.refreshCurrentViewK8s()
+}
+
+func (m Model) refreshCurrentViewK8s() (tea.Model, tea.Cmd) {
 	switch m.currentResource {
 	case ResourcePods:
 		return m, m.podsView.Refresh()
@@ -1233,6 +1517,20 @@ func (m Model) refreshCurrentView() (tea.Model, tea.Cmd) {
 		if am, ok := m.addonByType[m.currentResource]; ok {
 			return m, am.Refresh()
 		}
+	}
+	return m, nil
+}
+
+func (m Model) refreshCurrentViewDocker() (tea.Model, tea.Cmd) {
+	switch m.currentResource {
+	case ResourceContainers:
+		return m, m.containersView.Refresh()
+	case ResourceImages:
+		return m, m.imagesView.Refresh()
+	case ResourceVolumes:
+		return m, m.volumesView.Refresh()
+	case ResourceNetworks:
+		return m, m.networksView.Refresh()
 	}
 	return m, nil
 }
@@ -1292,6 +1590,10 @@ func (m Model) renderHeader() string {
 		return logo + lipgloss.NewStyle().Foreground(ColorMuted).Render(" - Yet Another Kubernetes TUI")
 	}
 
+	if m.backend == BackendDocker {
+		return logo + m.renderDockerHeaderInfo(logo)
+	}
+
 	sep := lipgloss.NewStyle().Foreground(ColorBorder).Render("  │  ")
 	labelStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 	valueStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
@@ -1325,6 +1627,34 @@ func (m Model) renderHeader() string {
 		sep +
 		labelStyle.Render("k8s ") + valueStyle.Render(versionVal)
 
+	return logo + m.headerPadding(logo, info) + info
+}
+
+// renderDockerHeaderInfo returns the Docker-mode header padding + info
+// string (the caller prepends logo, matching renderHeader's k8s path).
+func (m Model) renderDockerHeaderInfo(logo string) string {
+	sep := lipgloss.NewStyle().Foreground(ColorBorder).Render("  │  ")
+	labelStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+	valueStyle := lipgloss.NewStyle().Foreground(ColorText).Bold(true)
+
+	version := m.dockerInfo.ServerVersion
+	if version == "" {
+		version = "…"
+	}
+
+	info := labelStyle.Render("docker ") + valueStyle.Render(version) +
+		sep +
+		labelStyle.Render("running ") + valueStyle.Render(fmt.Sprintf("%d", m.dockerInfo.ContainersRunning)) +
+		sep +
+		labelStyle.Render("stopped ") + valueStyle.Render(fmt.Sprintf("%d", m.dockerInfo.ContainersStopped)) +
+		sep +
+		labelStyle.Render("images ") + valueStyle.Render(fmt.Sprintf("%d", m.dockerInfo.Images))
+
+	return m.headerPadding(logo, info) + info
+}
+
+// headerPadding returns the spacer string that right-aligns info against logo.
+func (m Model) headerPadding(logo, info string) string {
 	logoWidth := lipgloss.Width(logo)
 	infoWidth := lipgloss.Width(info)
 	totalWidth := m.width - 2
@@ -1336,13 +1666,15 @@ func (m Model) renderHeader() string {
 	for i := 0; i < gap; i++ {
 		padding += " "
 	}
-
-	return logo + padding + info
+	return padding
 }
 
 func (m Model) renderSidebar() string {
 	var items string
-	addonsStart := len(resourceTypes)
+	addonsStart := len(k8sResourceTypes)
+	if m.backend == BackendDocker {
+		addonsStart = -1 // no addons section in Docker mode
+	}
 	for i, item := range m.sidebarItems {
 		if i == addonsStart {
 			items += SidebarSectionStyle.Render("Addons") + "\n"
@@ -1391,7 +1723,10 @@ func (m Model) renderContent() string {
 			title = "YAML: " + m.describeView.GetTitle()
 		}
 	case ViewLogs:
-		if m.logsView != nil {
+		if m.backend == BackendDocker && m.containerLogsView != nil {
+			content = m.containerLogsView.View()
+			title = "Logs: " + m.containerLogsView.GetLogTitle()
+		} else if m.logsView != nil {
 			content = m.logsView.View()
 			title = "Logs: " + m.logsView.GetLogTitle()
 		}
@@ -1401,43 +1736,16 @@ func (m Model) renderContent() string {
 			title = "Relations: " + m.relationsView.GetPodName()
 		}
 	default:
-		switch m.currentResource {
-		case ResourcePods:
-			content = m.podsView.View()
-			count = m.podsView.Count()
-		case ResourceDeployments:
-			content = m.deploymentsView.View()
-			count = m.deploymentsView.Count()
-		case ResourceServices:
-			content = m.servicesView.View()
-			count = m.servicesView.Count()
-		case ResourceConfigMaps:
-			content = m.configmapsView.View()
-			count = m.configmapsView.Count()
-		case ResourceSecrets:
-			content = m.secretsView.View()
-			count = m.secretsView.Count()
-		case ResourceNamespaces:
-			content = m.namespacesView.View()
-			count = m.namespacesView.Count()
-		case ResourceNodes:
-			content = m.nodesView.View()
-			count = m.nodesView.Count()
-		case ResourceStatefulSets:
-			content = m.statefulSetsView.View()
-			count = m.statefulSetsView.Count()
-		case ResourceDaemonSets:
-			content = m.daemonSetsView.View()
-			count = m.daemonSetsView.Count()
-		case ResourceEvents:
-			content = m.eventsView.View()
-			count = m.eventsView.Count()
-		default:
-			if am, ok := m.addonByType[m.currentResource]; ok {
-				content = am.View()
-				count = am.Count()
+		if m.backend == BackendDocker {
+			content, count = m.renderContentDocker()
+			if m.filterQuery != "" {
+				title = fmt.Sprintf("%s (%d) /%s", m.resourceLabel(m.currentResource), count, m.filterQuery)
+			} else {
+				title = fmt.Sprintf("%s (%d)", m.resourceLabel(m.currentResource), count)
 			}
+			break
 		}
+		content, count = m.renderContentK8s()
 		// Build title with namespace info, count, and active filter
 		nsInfo := ""
 		if m.showAllNamespaces {
@@ -1466,6 +1774,50 @@ func (m Model) renderContent() string {
 
 	focused := m.focusedPanel == ContentPanel
 	return RenderPanelWithTitle(title, content, contentWidth, contentHeight, focused)
+}
+
+func (m Model) renderContentK8s() (string, int) {
+	switch m.currentResource {
+	case ResourcePods:
+		return m.podsView.View(), m.podsView.Count()
+	case ResourceDeployments:
+		return m.deploymentsView.View(), m.deploymentsView.Count()
+	case ResourceServices:
+		return m.servicesView.View(), m.servicesView.Count()
+	case ResourceConfigMaps:
+		return m.configmapsView.View(), m.configmapsView.Count()
+	case ResourceSecrets:
+		return m.secretsView.View(), m.secretsView.Count()
+	case ResourceNamespaces:
+		return m.namespacesView.View(), m.namespacesView.Count()
+	case ResourceNodes:
+		return m.nodesView.View(), m.nodesView.Count()
+	case ResourceStatefulSets:
+		return m.statefulSetsView.View(), m.statefulSetsView.Count()
+	case ResourceDaemonSets:
+		return m.daemonSetsView.View(), m.daemonSetsView.Count()
+	case ResourceEvents:
+		return m.eventsView.View(), m.eventsView.Count()
+	default:
+		if am, ok := m.addonByType[m.currentResource]; ok {
+			return am.View(), am.Count()
+		}
+	}
+	return "", 0
+}
+
+func (m Model) renderContentDocker() (string, int) {
+	switch m.currentResource {
+	case ResourceContainers:
+		return m.containersView.View(), m.containersView.Count()
+	case ResourceImages:
+		return m.imagesView.View(), m.imagesView.Count()
+	case ResourceVolumes:
+		return m.volumesView.View(), m.volumesView.Count()
+	case ResourceNetworks:
+		return m.networksView.View(), m.networksView.Count()
+	}
+	return "", 0
 }
 
 func (m Model) renderConnectingView(header string) string {
@@ -1511,8 +1863,14 @@ func (m Model) renderStatusBar() string {
 	sep := StatusSepStyle.Render("  ")
 
 	if m.confirmDelete {
-		warning := lipgloss.NewStyle().Foreground(ColorError).Background(lipgloss.Color("#1a1a1a")).Bold(true).Render("Delete pod")
-		name := lipgloss.NewStyle().Foreground(ColorWarning).Background(lipgloss.Color("#1a1a1a")).Bold(true).Render(m.confirmDeleteTarget)
+		label := "Delete pod"
+		display := m.confirmDeleteTarget
+		if m.confirmDeleteKind == "container" {
+			label = "Remove container"
+			display = m.confirmDeleteLabel
+		}
+		warning := lipgloss.NewStyle().Foreground(ColorError).Background(lipgloss.Color("#1a1a1a")).Bold(true).Render(label)
+		name := lipgloss.NewStyle().Foreground(ColorWarning).Background(lipgloss.Color("#1a1a1a")).Bold(true).Render(display)
 		confirm := StatusKeyStyle.Render("y") + StatusDescStyle.Render(" confirm")
 		cancel := StatusKeyStyle.Render("n/esc") + StatusDescStyle.Render(" cancel")
 		help = warning + StatusSepStyle.Render(" ") + name + StatusSepStyle.Render("?   ") + confirm + StatusSepStyle.Render("   ") + cancel
@@ -1564,7 +1922,26 @@ func (m Model) renderStatusBar() string {
 			StatusKeyStyle.Render("esc") + StatusDescStyle.Render(" back") + sep +
 			StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
 	default:
-		if m.currentResource == ResourcePods {
+		switch {
+		case m.backend == BackendDocker && m.currentResource == ResourceContainers:
+			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + sep +
+				StatusKeyStyle.Render("l") + StatusDescStyle.Render(" logs") + sep +
+				StatusKeyStyle.Render("s") + StatusDescStyle.Render(" shell") + sep +
+				StatusKeyStyle.Render("S/x/R") + StatusDescStyle.Render(" start/stop/restart") + sep +
+				StatusKeyStyle.Render("del") + StatusDescStyle.Render(" remove") + sep +
+				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" inspect") + sep +
+				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + sep +
+				StatusKeyStyle.Render("D") + StatusDescStyle.Render(" k8s mode") + sep +
+				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + sep +
+				StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
+		case m.backend == BackendDocker:
+			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + sep +
+				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" inspect") + sep +
+				StatusKeyStyle.Render("/") + StatusDescStyle.Render(" search") + sep +
+				StatusKeyStyle.Render("D") + StatusDescStyle.Render(" k8s mode") + sep +
+				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + sep +
+				StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
+		case m.currentResource == ResourcePods:
 			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + sep +
 				StatusKeyStyle.Render("enter") + StatusDescStyle.Render(" relations") + sep +
 				StatusKeyStyle.Render("l") + StatusDescStyle.Render(" logs") + sep +
@@ -1576,7 +1953,7 @@ func (m Model) renderStatusBar() string {
 				StatusKeyStyle.Render("c") + StatusDescStyle.Render(" ctx") + sep +
 				StatusKeyStyle.Render("?") + StatusDescStyle.Render(" help") + sep +
 				StatusKeyStyle.Render("q") + StatusDescStyle.Render(" quit")
-		} else {
+		default:
 			help = StatusKeyStyle.Render("tab") + StatusDescStyle.Render(" switch") + sep +
 				StatusKeyStyle.Render("d") + StatusDescStyle.Render(" yaml") + sep +
 				StatusKeyStyle.Render("a") + StatusDescStyle.Render(" all ns") + sep +
@@ -1613,6 +1990,107 @@ func (m Model) switchContext(contextName string) tea.Cmd {
 	return func() tea.Msg {
 		newClient, err := client.NewWithContext(m.kubeconfig, contextName, "default")
 		return ContextSwitchedMsg{NewClient: newClient, Err: err}
+	}
+}
+
+// toggleBackend switches between Kubernetes and Docker mode. Switching into
+// Docker mode connects lazily — the Docker client is only ever constructed
+// here, on first use, never at startup.
+func (m Model) toggleBackend() tea.Msg {
+	if m.backend == BackendDocker {
+		return BackendSwitchedMsg{NewBackend: BackendKubernetes}
+	}
+	dc := m.dockerClient
+	if dc == nil {
+		var err error
+		dc, err = dockerclient.New()
+		if err != nil {
+			return BackendSwitchedMsg{NewBackend: BackendDocker, Err: err}
+		}
+	}
+	return BackendSwitchedMsg{NewBackend: BackendDocker, DockerClient: dc}
+}
+
+// handleBackendSwitched applies a completed backend switch to the model.
+func (m Model) handleBackendSwitched(msg BackendSwitchedMsg) (tea.Model, tea.Cmd) {
+	if msg.Err != nil {
+		m.statusMessage = "docker: " + msg.Err.Error()
+		return m, clearStatusCmd()
+	}
+
+	m.backend = msg.NewBackend
+	contentWidth := m.width - 27
+	contentHeight := m.height - 7
+
+	if msg.NewBackend == BackendDocker {
+		m.dockerClient = msg.DockerClient
+		m.sidebarItems = append([]ResourceType{}, dockerResourceTypes...)
+		m.containersView = NewContainersModel(m.dockerClient)
+		m.imagesView = NewImagesModel(m.dockerClient)
+		m.volumesView = NewVolumesModel(m.dockerClient)
+		m.networksView = NewNetworksModel(m.dockerClient)
+		m.containersView.SetSize(contentWidth, contentHeight)
+		m.imagesView.SetSize(contentWidth, contentHeight)
+		m.volumesView.SetSize(contentWidth, contentHeight)
+		m.networksView.SetSize(contentWidth, contentHeight)
+		m.sidebarSelected = 0
+		m.currentResource = ResourceContainers
+		m.focusedPanel = ContentPanel
+		m.statusMessage = "switched to docker"
+		return m, tea.Batch(
+			m.containersView.Init(),
+			m.imagesView.Init(),
+			m.volumesView.Init(),
+			m.networksView.Init(),
+			m.fetchDockerInfo,
+			clearStatusCmd(),
+		)
+	}
+
+	// Back to Kubernetes: k8s views were never torn down, only the sidebar
+	// contents changed — no reconstruction or refetch needed.
+	sidebarItems := append([]ResourceType{}, k8sResourceTypes...)
+	for _, am := range m.addonModels {
+		sidebarItems = append(sidebarItems, m.addonByName[am.def.Name])
+	}
+	m.sidebarItems = sidebarItems
+	m.sidebarSelected = 0
+	m.currentResource = ResourcePods
+	m.focusedPanel = ContentPanel
+	m.statusMessage = "switched to kubernetes"
+	return m, clearStatusCmd()
+}
+
+func (m Model) fetchDockerInfo() tea.Msg {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	info, err := m.dockerClient.Info(ctx)
+	return DockerInfoMsg{Info: info, Err: err}
+}
+
+func (m Model) removeContainer(id, label string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := m.dockerClient.RemoveContainer(ctx, id, true)
+		return RemoveContainerResultMsg{Name: label, Err: err}
+	}
+}
+
+func (m Model) containerAction(action, id, label string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var err error
+		switch action {
+		case "start":
+			err = m.dockerClient.StartContainer(ctx, id)
+		case "stop":
+			err = m.dockerClient.StopContainer(ctx, id)
+		case "restart":
+			err = m.dockerClient.RestartContainer(ctx, id)
+		}
+		return ContainerActionResultMsg{Action: action, Name: label, Err: err}
 	}
 }
 
@@ -1668,17 +2146,19 @@ func (m Model) renderHelpOverlay() string {
 			{"esc", "back / cancel"},
 		}},
 		{"Resource actions", []row{
-			{"l", "pod logs"},
-			{"s", "shell (pods)"},
-			{"d", "yaml / describe"},
+			{"l", "pod/container logs"},
+			{"s", "shell (pods/containers)"},
+			{"d", "yaml / describe / inspect"},
 			{"enter", "relations (pods)"},
-			{"del", "delete pod"},
+			{"del", "delete pod / remove container"},
+			{"S/x/R", "start/stop/restart (containers)"},
 		}},
 		{"Global", []row{
 			{"/", "filter resources"},
 			{":", "command palette"},
 			{"a", "toggle all namespaces"},
 			{"c", "switch context"},
+			{"D", "toggle docker/k8s mode"},
 			{"?", "toggle this help"},
 			{"q/ctrl+c", "quit"},
 		}},
@@ -1727,4 +2207,22 @@ type ContextsMsg struct {
 type ContextSwitchedMsg struct {
 	NewClient *client.Client
 	Err       error
+}
+type BackendSwitchedMsg struct {
+	NewBackend   Backend
+	DockerClient *dockerclient.Client
+	Err          error
+}
+type DockerInfoMsg struct {
+	Info dockersystem.Info
+	Err  error
+}
+type RemoveContainerResultMsg struct {
+	Name string
+	Err  error
+}
+type ContainerActionResultMsg struct {
+	Action string
+	Name   string
+	Err    error
 }

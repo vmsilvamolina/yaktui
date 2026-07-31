@@ -19,6 +19,10 @@ type KeyMap struct {
 	Search         key.Binding
 	CommandPalette key.Binding
 	ContextSwitch  key.Binding
+	BackendSwitch  key.Binding
+	Start          key.Binding
+	Stop           key.Binding
+	Restart        key.Binding
 	Quit           key.Binding
 	Help           key.Binding
 }
@@ -85,6 +89,22 @@ var DefaultKeyMap = KeyMap{
 		key.WithKeys("c"),
 		key.WithHelp("c", "switch context"),
 	),
+	BackendSwitch: key.NewBinding(
+		key.WithKeys("D"),
+		key.WithHelp("D", "toggle docker/k8s"),
+	),
+	Start: key.NewBinding(
+		key.WithKeys("S"),
+		key.WithHelp("S", "start container"),
+	),
+	Stop: key.NewBinding(
+		key.WithKeys("x"),
+		key.WithHelp("x", "stop container"),
+	),
+	Restart: key.NewBinding(
+		key.WithKeys("R"),
+		key.WithHelp("R", "restart container"),
+	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c", "q"),
 		key.WithHelp("q", "quit"),
@@ -106,7 +126,8 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.Enter, k.Back, k.Tab},
 		{k.Logs, k.Shell, k.Describe, k.Delete},
+		{k.Start, k.Stop, k.Restart},
 		{k.AllNS, k.Search, k.CommandPalette},
-		{k.ContextSwitch, k.Quit, k.Help},
+		{k.ContextSwitch, k.BackendSwitch, k.Quit, k.Help},
 	}
 }
