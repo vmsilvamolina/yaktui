@@ -580,6 +580,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.fetchContexts
 		}
 
+		// Manual refresh of the active resource view (the auto-tick is 30s)
+		if key.Matches(msg, m.keys.Refresh) && m.currentView == ViewList {
+			newModel, cmd := m.refreshCurrentView()
+			m = newModel.(Model)
+			m.statusMessage = "refreshing " + m.resourceLabel(m.currentResource)
+			return m, tea.Batch(cmd, clearStatusCmd())
+		}
+
 		// Handle based on current view
 		if m.currentView == ViewLogs && m.containerLogsView != nil {
 			if key.Matches(msg, m.keys.Back) {
@@ -2156,6 +2164,7 @@ func (m Model) renderHelpOverlay() string {
 		{"Global", []row{
 			{"/", "filter resources"},
 			{":", "command palette"},
+			{"r", "refresh current view"},
 			{"a", "toggle all namespaces"},
 			{"c", "switch context"},
 			{"D", "toggle docker/k8s mode"},
