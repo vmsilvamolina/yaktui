@@ -216,6 +216,38 @@ func TestListAndGetDeployments(t *testing.T) {
 	}
 }
 
+func TestScaleDeployment(t *testing.T) {
+	c, fakeClientset := newTestClient()
+	replicas := int32(2)
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "dep-a", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+	}
+	if _, err := fakeClientset.AppsV1().Deployments("default").Create(context.Background(), dep, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.ScaleDeployment(context.Background(), "dep-a", 5); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := c.GetDeployment(context.Background(), "dep-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Replicas == nil || *got.Spec.Replicas != 5 {
+		t.Fatalf("expected 5 replicas, got %+v", got.Spec.Replicas)
+	}
+}
+
+func TestScaleDeploymentNotFound(t *testing.T) {
+	c, _ := newTestClient()
+
+	if err := c.ScaleDeployment(context.Background(), "does-not-exist", 3); err == nil {
+		t.Fatal("expected error for missing deployment")
+	}
+}
+
 func TestListAndGetServices(t *testing.T) {
 	c, fakeClientset := newTestClient()
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "svc-a", Namespace: "default"}}

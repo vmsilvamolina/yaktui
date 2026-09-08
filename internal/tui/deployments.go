@@ -216,10 +216,7 @@ func (m *DeploymentsModel) updateTable() {
 		if q != "" && !strings.Contains(strings.ToLower(dep.Name), q) {
 			continue
 		}
-		var replicas int32 = 0
-		if dep.Spec.Replicas != nil {
-			replicas = *dep.Spec.Replicas
-		}
+		replicas := deploymentReplicas(&dep)
 		rows = append(rows, table.Row{
 			dep.Namespace,
 			dep.Name,

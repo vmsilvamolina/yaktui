@@ -217,6 +217,18 @@ func (c *Client) ListAllDeployments(ctx context.Context) ([]appsv1.Deployment, e
 	return list.Items, nil
 }
 
+// ScaleDeployment sets a deployment's replica count.
+func (c *Client) ScaleDeployment(ctx context.Context, name string, replicas int32) error {
+	deployments := c.clientset.AppsV1().Deployments(c.namespace)
+	dep, err := deployments.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	dep.Spec.Replicas = &replicas
+	_, err = deployments.Update(ctx, dep, metav1.UpdateOptions{})
+	return err
+}
+
 // ListAllServices returns services in all namespaces
 func (c *Client) ListAllServices(ctx context.Context) ([]corev1.Service, error) {
 	list, err := c.clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})

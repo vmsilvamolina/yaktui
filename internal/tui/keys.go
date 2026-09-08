@@ -23,6 +23,8 @@ type KeyMap struct {
 	Start          key.Binding
 	Stop           key.Binding
 	Restart        key.Binding
+	ScaleUp        key.Binding
+	ScaleDown      key.Binding
 	Quit           key.Binding
 	Help           key.Binding
 }
@@ -105,6 +107,14 @@ var DefaultKeyMap = KeyMap{
 		key.WithKeys("R"),
 		key.WithHelp("R", "restart container"),
 	),
+	ScaleUp: key.NewBinding(
+		key.WithKeys("+", "="),
+		key.WithHelp("+", "scale up"),
+	),
+	ScaleDown: key.NewBinding(
+		key.WithKeys("-"),
+		key.WithHelp("-", "scale down"),
+	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c", "q"),
 		key.WithHelp("q", "quit"),
@@ -126,7 +136,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.Enter, k.Back, k.Tab},
 		{k.Logs, k.Shell, k.Describe, k.Delete},
-		{k.Start, k.Stop, k.Restart},
+		{k.Start, k.Stop, k.Restart, k.ScaleUp, k.ScaleDown},
 		{k.AllNS, k.Search, k.CommandPalette},
 		{k.ContextSwitch, k.BackendSwitch, k.Quit, k.Help},
 	}

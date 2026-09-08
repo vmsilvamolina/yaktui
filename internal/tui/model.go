@@ -13,6 +13,7 @@ import (
 	"github.com/vmsilvamolina/yaktui/internal/addons"
 	"github.com/vmsilvamolina/yaktui/internal/client"
 	"github.com/vmsilvamolina/yaktui/internal/dockerclient"
+	appsv1 "k8s.io/api/apps/v1"
 )
 
 // Panel represents which panel is focused
@@ -816,6 +817,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMessage = "deleted pod: " + msg.Name
 		return m, tea.Batch(m.podsView.Refresh(), clearStatusCmd())
 
+	case ScaleDeploymentResultMsg:
+		if msg.Err != nil {
+			m.statusMessage = "error scaling " + msg.Name + ": " + msg.Err.Error()
+			return m, clearStatusCmd()
+		}
+		m.statusMessage = fmt.Sprintf("scaled %s to %d replicas", msg.Name, msg.Replicas)
+		return m, tea.Batch(m.deploymentsView.Refresh(), clearStatusCmd())
+
 	case ContextsMsg:
 		if msg.Err != nil {
 			m.statusMessage = "error listing contexts: " + msg.Err.Error()
@@ -1154,6 +1163,18 @@ func (m Model) updateContentK8s(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ResourceDeployments:
+		if key.Matches(msg, m.keys.ScaleUp) {
+			if dep := m.deploymentsView.GetSelectedDeployment(); dep != nil {
+				return m, m.scaleDeployment(dep.Name, deploymentReplicas(dep)+1)
+			}
+		}
+		if key.Matches(msg, m.keys.ScaleDown) {
+			if dep := m.deploymentsView.GetSelectedDeployment(); dep != nil {
+				if r := deploymentReplicas(dep) - 1; r >= 0 {
+					return m, m.scaleDeployment(dep.Name, r)
+				}
+			}
+		}
 		newView, cmd := m.deploymentsView.Update(msg)
 		m.deploymentsView = newView.(*DeploymentsModel)
 		return m, cmd
@@ -2077,6 +2098,24 @@ func (m Model) removeContainer(id, label string) tea.Cmd {
 	}
 }
 
+// deploymentReplicas returns a deployment's desired replica count, treating
+// a nil Spec.Replicas (the API default) as 0.
+func deploymentReplicas(dep *appsv1.Deployment) int32 {
+	if dep.Spec.Replicas == nil {
+		return 0
+	}
+	return *dep.Spec.Replicas
+}
+
+func (m Model) scaleDeployment(name string, replicas int32) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := m.client.ScaleDeployment(ctx, name, replicas)
+		return ScaleDeploymentResultMsg{Name: name, Replicas: replicas, Err: err}
+	}
+}
+
 func (m Model) containerAction(action, id, label string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -2152,6 +2191,7 @@ func (m Model) renderHelpOverlay() string {
 			{"enter", "relations (pods)"},
 			{"del", "delete pod / remove container"},
 			{"S/x/R", "start/stop/restart (containers)"},
+			{"+/-", "scale deployment up/down"},
 		}},
 		{"Global", []row{
 			{"/", "filter resources"},
@@ -2195,6 +2235,11 @@ type ExecFinishedMsg struct{ Err error }
 type DeletePodResultMsg struct {
 	Name string
 	Err  error
+}
+type ScaleDeploymentResultMsg struct {
+	Name     string
+	Replicas int32
+	Err      error
 }
 type ClusterInfoMsg struct {
 	Version string
