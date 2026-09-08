@@ -16,6 +16,7 @@ type KeyMap struct {
 	Describe       key.Binding
 	Delete         key.Binding
 	AllNS          key.Binding
+	Refresh        key.Binding
 	Search         key.Binding
 	CommandPalette key.Binding
 	ContextSwitch  key.Binding
@@ -77,6 +78,10 @@ var DefaultKeyMap = KeyMap{
 		key.WithKeys("a"),
 		key.WithHelp("a", "all namespaces"),
 	),
+	Refresh: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "refresh"),
+	),
 	Search: key.NewBinding(
 		key.WithKeys("/"),
 		key.WithHelp("/", "search"),
@@ -127,7 +132,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Enter, k.Back, k.Tab},
 		{k.Logs, k.Shell, k.Describe, k.Delete},
 		{k.Start, k.Stop, k.Restart},
-		{k.AllNS, k.Search, k.CommandPalette},
+		{k.AllNS, k.Refresh, k.Search, k.CommandPalette},
 		{k.ContextSwitch, k.BackendSwitch, k.Quit, k.Help},
 	}
 }
